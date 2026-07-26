@@ -561,9 +561,12 @@ function finishOnboarding() {
   refreshAll();
 }
 
+// Tres tramos, uno por pregunta. El paso de selección de alérgenos comparte
+// tramo con la pregunta de sí/no: son la misma pregunta en dos pantallas.
+const STEP_COUNT = 3;
+
 function stepIndex(step) {
-  // El paso de selección de alérgenos comparte tramo con la pregunta de sí/no.
-  const order = { intro: 0, allergies: 1, 'allergen-pick': 1, people: 2, preferences: 3 };
+  const order = { intro: 0, allergies: 0, 'allergen-pick': 0, people: 1, preferences: 2 };
   return order[step] ?? 0;
 }
 
@@ -577,7 +580,7 @@ function renderOnboarding() {
   if (onboardingStep !== 'intro') {
     const steps = el('div', 'smart-steps');
     steps.setAttribute('aria-hidden', 'true');
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < STEP_COUNT; index += 1) {
       const segment = el('span');
       if (index <= stepIndex(onboardingStep)) segment.classList.add('is-done');
       steps.append(segment);
@@ -703,11 +706,16 @@ function renderOnboarding() {
     const moreWrap = el('div', 'smart-people-more smart-hidden');
     const showMore = () => moreWrap.classList.remove('smart-hidden');
 
+    // A partir de este número se pasa a la selección rápida ampliada.
+    const MORE_FROM = 10;
+
     const paint = () => {
       row.querySelectorAll('button').forEach((node) => {
         const value = node.dataset.people;
         const isMore = value === 'more';
-        const selected = isMore ? Number(draft.people) >= 6 : Number(value) === Number(draft.people);
+        const selected = isMore
+          ? Number(draft.people) >= MORE_FROM
+          : Number(value) === Number(draft.people);
         node.classList.toggle('is-selected', selected);
         node.setAttribute('aria-pressed', String(selected));
       });
@@ -718,7 +726,7 @@ function renderOnboarding() {
       });
     };
 
-    [1, 2, 3, 4, 5].forEach((value) => {
+    [1, 2, 3, 4, 5, 6, 7, 8, 9].forEach((value) => {
       const node = button('', String(value), () => {
         draft.people = value;
         moreWrap.classList.add('smart-hidden');
@@ -728,18 +736,18 @@ function renderOnboarding() {
       row.append(node);
     });
 
-    const more = button('', '6+', () => {
+    const more = button('', '10+', () => {
       showMore();
       paint();
     });
     more.dataset.people = 'more';
-    more.setAttribute('aria-label', 'Seis o más personas');
+    more.setAttribute('aria-label', 'Diez o más personas');
     row.append(more);
 
     moreWrap.append(el('p', null, '¿Cuántos exactamente?'));
     const moreRow = el('div', 'smart-people');
-    [6, 7, 8, 9, 10, 12, 15, 20].forEach((value) => {
-      const node = button('', value === 20 ? '20+' : String(value), () => {
+    [10, 11, 12, 14, 16, 18, 20, 25, 30].forEach((value) => {
+      const node = button('', value === 30 ? '30+' : String(value), () => {
         draft.people = value;
         paint();
       });
@@ -748,7 +756,7 @@ function renderOnboarding() {
     });
     moreWrap.append(moreRow);
 
-    if (Number(draft.people) >= 6) showMore();
+    if (Number(draft.people) >= MORE_FROM) showMore();
     body.append(row, moreWrap);
     paint();
 

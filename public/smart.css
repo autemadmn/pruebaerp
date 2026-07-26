@@ -241,10 +241,14 @@ body.smart-locked {
    Onboarding
    -------------------------------------------------------------------------- */
 
+/* Escala de capas.
+   La isla de pestañas inferior es `position: fixed` con z-index 70 en móvil, así
+   que todas las ventanas de la carta inteligente van por encima. Se quedan por
+   debajo del modal de alérgenos (84), que se abre desde la propia ficha. */
 .smart-onboarding {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 72;
   display: none;
   padding: 20px;
   background: rgba(38, 31, 26, 0.58);
@@ -828,7 +832,7 @@ body.smart-locked {
 .smart-sheet {
   position: fixed;
   inset: 0;
-  z-index: 70;
+  z-index: 76;
   display: none;
   padding: 16px;
   background: rgba(38, 31, 26, 0.6);
@@ -1275,7 +1279,7 @@ body.smart-locked {
 .smart-cart {
   position: fixed;
   inset: 0;
-  z-index: 65;
+  z-index: 74;
   display: none;
   background: rgba(38, 31, 26, 0.55);
   backdrop-filter: blur(6px);
@@ -1515,7 +1519,7 @@ body.smart-locked {
 .smart-review {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: 78;
   display: none;
   padding: 16px;
   background: rgba(38, 31, 26, 0.62);
@@ -1820,11 +1824,22 @@ body.smart-locked {
   }
 
   .smart-onboarding {
-    padding: 12px;
+    padding: 12px 12px calc(20px + env(safe-area-inset-bottom));
   }
 
   .smart-onboarding-panel {
     padding: 22px 18px 18px;
+  }
+
+  /* Con pasos largos (los 14 alérgenos) el panel supera la altura de pantalla:
+     las acciones se quedan ancladas abajo para que el botón de seguir esté
+     siempre a la vista. */
+  .smart-onboarding-actions {
+    position: sticky;
+    bottom: -18px;
+    margin: 0 -18px -18px;
+    padding: 14px 18px calc(14px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(255, 250, 242, 0.72), var(--smart-panel) 32%);
   }
 
   .smart-people button {
