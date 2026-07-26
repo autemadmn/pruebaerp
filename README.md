@@ -107,6 +107,20 @@ npm run build     # genera dist/
 npm run preview   # sirve dist/
 ```
 
+## Publicación
+
+Esto es una app de Vite: **hay que compilarla**. Servir el repositorio tal cual
+(GitHub Pages apuntando a la raíz de `main`) muestra la página sin estilos, porque
+`style.css`, `smart.css` y `assets/` viven dentro de `public/` y `src/main.js` está sin
+empaquetar.
+
+El flujo `.github/workflows/deploy-pages.yml` compila en cada push a `main` y publica
+solo `dist/`. Para que funcione, en **Settings → Pages → Build and deployment**, el
+*Source* tiene que estar en **GitHub Actions** (no en «Deploy from a branch»).
+
+`vite.config.js` fija `base: './'`, así que el mismo build vale tanto en la raíz de un
+dominio (Cloudflare Pages) como en un subdirectorio (`usuario.github.io/pruebaerp/`).
+
 ## Limitaciones conocidas
 
 - La capa de carta inteligente está **solo en español**. El selector de idioma sigue
