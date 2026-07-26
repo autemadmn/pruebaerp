@@ -1,4 +1,15 @@
 import { initialMenuSnapshot } from './menu-snapshot.js';
+import { localProductImages } from './product-images.js';
+import {
+  buildAllergenBanner,
+  decorateAllergenTrigger,
+  getAllergenInfo as getSmartAllergenInfo,
+  initSmartMenu,
+  isSelectedAllergenLabel,
+  openProductSheet,
+  refreshSmartPanels,
+  registerCatalog
+} from './smart-menu.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -250,10 +261,15 @@ function formatNumericPrice(price) {
   return `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} €`;
 }
 
-function getProductImageUrl(imagePath) {
-  if (!imagePath || !supabaseUrl) return fallbackProductImage;
-  const encodedPath = imagePath.split('/').map(encodeURIComponent).join('/');
-  return `${supabaseUrl}/storage/v1/object/public/product-images/${encodedPath}`;
+// El prototipo se sirve con las imágenes locales de /public para poder
+// funcionar sin credenciales de Supabase. Si hay proyecto configurado, manda el
+// Storage remoto, que es el que refleja los cambios del panel de administración.
+function getProductImageUrl(imagePath, productId) {
+  if (supabaseUrl && imagePath) {
+    const encodedPath = imagePath.split('/').map(encodeURIComponent).join('/');
+    return `${supabaseUrl}/storage/v1/object/public/product-images/${encodedPath}`;
+  }
+  return localProductImages[productId] || fallbackProductImage;
 }
 
 export async function getMenu(slug) {
@@ -323,7 +339,9 @@ export async function getMenu(slug) {
 
 // Empieza la consulta mientras el resto de la interfaz termina de inicializarse.
 // La misma promesa se consume en la primera carga visual para no duplicar la petición.
-initialMenuRequest = getMenu('tavola');
+// Sin credenciales el prototipo funciona íntegramente con el snapshot local.
+const hasSupabase = Boolean(supabaseUrl && supabaseAnonKey);
+if (hasSupabase) initialMenuRequest = getMenu('tavola');
 
 function productToLegacyShape(product) {
   const legacyId = legacyProductIds[product.id] || null;
@@ -335,7 +353,7 @@ function productToLegacyShape(product) {
     priceNote: product.price_note,
     price: product.price,
     priceDisplay: product.price_display,
-    image: getProductImageUrl(product.image_path),
+    image: getProductImageUrl(product.image_path, product.id),
     isAvailable: product.is_available,
     nameSize: product.name_size || 'normal',
     hasDetail: !nonInteractiveLegacyIds.has(legacyId)
@@ -382,6 +400,8 @@ function applyMenuData(menu) {
   menuSections.forEach((section) => {
     if (sectionGroups[section.id]) section.groups = sectionGroups[section.id];
   });
+
+  registerCatalog(menuSections);
 }
 
 function renderLoadingSkeleton() {
@@ -417,6 +437,7 @@ function renderMenuError() {
 }
 
 async function refreshMenu({ showLoading = false } = {}) {
+  if (!hasSupabase) return null;
   if (showLoading) renderLoadingSkeleton();
   try {
     const request = initialMenuRequest || getMenu('tavola');
@@ -427,6 +448,7 @@ async function refreshMenu({ showLoading = false } = {}) {
     renderTabs();
     renderActiveSection();
     updateActiveTabs();
+    refreshSmartPanels();
     return menu;
   } catch (error) {
     console.error('No se pudo cargar la carta de Tavola:', error);
@@ -487,11 +509,15 @@ async function initializeMenu() {
   updateStaticText();
   if (initialMenuSnapshot?.categories?.length) {
     applyMenuData(initialMenuSnapshot);
+    // La carta inteligente se monta con el catálogo ya cargado y antes del
+    // primer pintado, para que los avisos de alérgenos salgan a la primera.
+    initSmartMenu(smartBridge);
     dishPreview.classList.remove('is-loading');
     renderTabs();
     renderActiveSection();
     updateActiveTabs();
   } else {
+    initSmartMenu(smartBridge);
     renderTabs();
     renderLoadingSkeleton();
   }
@@ -594,160 +620,6 @@ const hamacaLanguageCopy = {
       "Du kannst direkt über den QR-Code an deinem Sonnenschirm bestellen.",
       "Du kannst direkt bei unserem Personal im Liegebereich bestellen."
     ]
-  }
-};
-
-const allergenData = {
-  "desayuno-tradicional": {
-    title: "Desayuno tradicional",
-    entries: [
-      {
-        name: "Tostada aceite/tomate",
-        contains: ["Gluten"],
-        traces: []
-      },
-      {
-        name: "Tostada mantequilla",
-        contains: ["Gluten", "Lácteos"],
-        traces: []
-      },
-      {
-        name: "Bollería",
-        contains: ["Gluten", "Lácteos", "Huevo"],
-        traces: ["Frutos secos"]
-      }
-    ]
-  },
-  "desayuno-supreme": {
-    title: "Desayuno Suprem",
-    entries: [
-      {
-        name: "Tostada salmón",
-        contains: ["Gluten", "Pescado"],
-        traces: []
-      }
-    ]
-  },
-  "frutos-secos": {
-    contains: ["Frutos secos"],
-    traces: []
-  },
-  aceitunas: {
-    contains: [],
-    traces: ["Sulfitos"]
-  },
-  "barqueta-mini-fuets": {
-    title: "Mini fuets",
-    contains: [],
-    traces: ["Lácteos", "Sulfitos"]
-  },
-  "papas-mejillones": {
-    title: "Papas + mejillones",
-    contains: ["Moluscos"],
-    traces: ["Sulfitos"]
-  },
-  "pulpo-pimenton": {
-    title: "Pulpo al pimentón con patatas a lo pobre",
-    contains: ["Moluscos"],
-    traces: ["Gluten", "Sulfitos"]
-  },
-  "nachos-verano": {
-    contains: ["Lácteos"],
-    traces: ["Gluten"]
-  },
-  "nachos-tartar-salmon": {
-    title: "Nachos con tartar",
-    contains: ["Huevo", "Pescado", "Soja"],
-    traces: ["Gluten"]
-  },
-  "tabla-quesos-valencianos": {
-    title: "Quesos",
-    contains: ["Lácteos"],
-    traces: []
-  },
-  "tortilla-jamon": {
-    contains: ["Huevo"],
-    traces: ["Sulfitos"]
-  },
-  "servicio-pan": {
-    title: "Pan",
-    contains: ["Gluten"],
-    traces: []
-  },
-  "servicio-picos-pan-adicional": {
-    title: "Pan y picos",
-    contains: ["Gluten"],
-    traces: []
-  },
-  "bocadillo-escalivada": {
-    contains: ["Gluten"],
-    traces: []
-  },
-  "magro-tomate": {
-    contains: ["Gluten"],
-    traces: []
-  },
-  "lomo-ajos-tiernos": {
-    contains: ["Gluten"],
-    traces: []
-  },
-  "bocadillo-atun-tomate": {
-    contains: ["Gluten", "Pescado"],
-    traces: []
-  },
-  "bocadillo-jamon-tomate-rucula": {
-    contains: ["Gluten"],
-    traces: []
-  },
-  "bocadillo-lomo-queso": {
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  margarita: {
-    title: "Pizza margarita",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  tartufata: {
-    title: "Pizza tartufata",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  "jamon-queso": {
-    title: "Pizza jamón y queso",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  "cuatro-quesos": {
-    title: "Pizza 4 quesos",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  peperoni: {
-    title: "Pizza peperoni",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  canibal: {
-    title: "Pizza canibal",
-    contains: ["Gluten", "Lácteos"],
-    traces: []
-  },
-  "ensalada-quinoa": {
-    contains: ["Lácteos"],
-    traces: []
-  },
-  "salmon-teriyaki": {
-    contains: ["Pescado", "Soja"],
-    traces: ["Gluten"]
-  },
-  "pollo-curry": {
-    contains: [],
-    traces: ["Lácteos"]
-  },
-  "macarrones-bolonesa": {
-    contains: ["Gluten"],
-    traces: []
   }
 };
 
@@ -1403,7 +1275,7 @@ function renderTabs() {
 }
 
 function getAllergenInfo(item) {
-  return allergenData[item.legacyId || item.id] || null;
+  return getSmartAllergenInfo(item);
 }
 
 function createAllergenButton(item, itemText) {
@@ -1426,20 +1298,23 @@ function createAllergenButton(item, itemText) {
     openAllergenModal(item, button);
   });
 
+  // Rojo si contiene un alérgeno marcado por la mesa, ámbar si hay trazas o
+  // riesgo cruzado. Nunca solo color: también se añade icono y texto.
+  decorateAllergenTrigger(button, item);
+
   return button;
 }
 
-function createDishButton(item, sectionName) {
+function createDishButton(item, sectionName, groupId) {
   const card = document.createElement("article");
   const isInteractive = item.hasDetail !== false;
   const button = document.createElement(isInteractive ? "button" : "div");
   const itemText = getItemText(item);
   const itemPrice = getItemPrice(item, itemText);
-  const allergens = getAllergenInfo(item);
 
   card.className = "dish";
   card.dataset.dish = item.id;
-  card.classList.toggle("has-allergens", Boolean(allergens));
+  card.classList.add("has-allergens");
   card.classList.toggle("is-static", !isInteractive);
   card.classList.toggle("is-sold-out", !item.isAvailable);
 
@@ -1481,14 +1356,15 @@ function createDishButton(item, sectionName) {
   }
 
   if (isInteractive) {
-    button.addEventListener("click", () => showDish(item, sectionName));
+    // Pulsar un producto nunca lo añade al pedido: primero se abre su ficha.
+    button.addEventListener("click", () => {
+      showDish(item, sectionName);
+      openProductSheet(item, groupId);
+    });
   }
 
   card.append(button);
-
-  if (allergens) {
-    card.append(createAllergenButton(item, itemText));
-  }
+  card.append(createAllergenButton(item, itemText));
 
   return card;
 }
@@ -1787,7 +1663,7 @@ function createFoodGroup(group, isExpanded) {
   }
 
   group.items.forEach((item) => {
-    panel.append(createDishButton(item, groupText.category));
+    panel.append(createDishButton(item, groupText.category, group.id));
   });
 
   toggle.append(titleWrap, indicator);
@@ -1895,7 +1771,7 @@ function renderActiveSection() {
 
   section.groups.forEach((group) => {
     group.items.forEach((item) => {
-      sectionBlock.append(createDishButton(item, sectionText.category));
+      sectionBlock.append(createDishButton(item, sectionText.category, group.id));
     });
   });
 
@@ -2077,6 +1953,11 @@ function createAllergenGroup(label, allergens, className) {
     const chip = document.createElement("span");
 
     chip.textContent = allergen;
+    // Los que coinciden con la selección de la mesa se destacan.
+    if (isSelectedAllergenLabel(allergen)) {
+      chip.classList.add("is-match");
+      chip.textContent = `⛔ ${allergen}`;
+    }
     list.append(chip);
   });
 
@@ -2113,23 +1994,42 @@ function openAllergenModal(item, sourceElement) {
   const itemText = getItemText(item);
   const info = getAllergenInfo(item);
 
-  if (!info) return;
-
-  const entries = info.entries || [
+  const entries = info?.entries || [
     {
-      name: info.title || itemText.title,
-      contains: info.contains || [],
-      traces: info.traces || []
+      name: info?.title || itemText.title,
+      contains: info?.contains || [],
+      traces: info?.traces || []
     }
   ];
 
   lastFocusedElement = sourceElement || document.activeElement;
-  allergenTitle.textContent = info.title || itemText.title;
+  allergenTitle.textContent = info?.title || itemText.title;
   allergenModalContent.textContent = "";
+
+  // Aviso destacado cuando el producto choca con la selección de la mesa.
+  const banner = buildAllergenBanner(item);
+  if (banner) allergenModalContent.append(banner);
 
   entries.forEach((entry) => {
     allergenModalContent.append(createAllergenEntry(entry, { showTitle: entries.length > 1 }));
   });
+
+  const hasAny = entries.some((entry) => entry.contains?.length || entry.traces?.length);
+  if (!hasAny) {
+    const empty = document.createElement("p");
+    empty.className = "smart-allergen-note";
+    empty.textContent = info
+      ? "Sin alérgenos de declaración obligatoria."
+      : "No tenemos la ficha de alérgenos cargada para este producto. Consulta al personal.";
+    allergenModalContent.append(empty);
+  }
+
+  if (info?.note) {
+    const note = document.createElement("p");
+    note.className = "smart-allergen-note";
+    note.textContent = info.note;
+    allergenModalContent.append(note);
+  }
 
   allergenModal.classList.add("is-open");
   allergenModal.setAttribute("aria-hidden", "false");
@@ -2426,6 +2326,18 @@ window.addEventListener(
   },
   { passive: true }
 );
+
+// Puente hacia la capa de carta inteligente: le damos acceso a los textos, los
+// precios y el modal de alérgenos que ya sabe pintar la carta original.
+const smartBridge = {
+  getItemText,
+  getItemPrice,
+  openAllergenModal,
+  rerenderMenu() {
+    renderActiveSection();
+    updateActiveTabs();
+  }
+};
 
 initializeMenu();
 

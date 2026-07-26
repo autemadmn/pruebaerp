@@ -1,0 +1,1835 @@
+// Carta inteligente — capa de prototipo sobre la carta digital de Tavola.
+//
+// Todo lo que ocurre aquí es una simulación de experiencia de usuario: no hay
+// comandas reales, ni cocina, ni pagos, ni base de datos. El estado vive en
+// memoria y se recuerda en localStorage para que la demo aguante una recarga.
+
+import {
+  ALLERGENS,
+  PREFERENCES,
+  allergenCatalog,
+  allergenIdFromLabel,
+  getProductKind,
+  getProductMeta,
+  getProductOptions,
+  groupPairings,
+  pairingHeadings,
+  pairingsByKind,
+  pairingsByProduct,
+  popularCombos
+} from './smart-data.js';
+
+const TABLE_STORAGE_KEY = 'tavolaSmartTable';
+const CART_STORAGE_KEY = 'tavolaSmartCart';
+const CAROUSEL_INTERVAL = 5500;
+
+const priceFormatter = new Intl.NumberFormat('es-ES', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
+
+function formatPrice(amount) {
+  return `${priceFormatter.format(Number(amount) || 0)} €`;
+}
+
+// ---------------------------------------------------------------------------
+// Estado
+// ---------------------------------------------------------------------------
+
+const defaultTable = {
+  configured: false,
+  hasAllergies: null,
+  allergens: [],
+  people: null,
+  preferences: []
+};
+
+let table = { ...defaultTable };
+let cart = [];
+
+// Puente con main.js: catálogo plano y utilidades de texto/precio de la carta.
+const catalog = {
+  byId: new Map(),
+  byLegacyId: new Map(),
+  all: []
+};
+let host = null;
+
+function readStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // El almacenamiento puede no estar disponible en navegación privada.
+  }
+}
+
+function loadState() {
+  const savedTable = readStorage(TABLE_STORAGE_KEY, null);
+  if (savedTable && typeof savedTable === 'object') {
+    table = { ...defaultTable, ...savedTable };
+  }
+  const savedCart = readStorage(CART_STORAGE_KEY, null);
+  if (Array.isArray(savedCart)) cart = savedCart;
+}
+
+function persistTable() {
+  writeStorage(TABLE_STORAGE_KEY, table);
+}
+
+function persistCart() {
+  writeStorage(CART_STORAGE_KEY, cart);
+}
+
+// El estado se lee de inmediato: main.js consulta la severidad de alérgenos
+// antes de que la interfaz de la carta inteligente esté montada.
+loadState();
+
+// ---------------------------------------------------------------------------
+// Utilidades de catálogo
+// ---------------------------------------------------------------------------
+
+function entryFor(item) {
+  if (!item) return null;
+  return catalog.byId.get(item.id) || null;
+}
+
+function entryByLegacyId(legacyId) {
+  return catalog.byLegacyId.get(legacyId) || null;
+}
+
+function itemTitle(item) {
+  return host?.getItemText(item)?.title || '';
+}
+
+function itemDescription(item) {
+  return host?.getItemText(item)?.description || '';
+}
+
+function basePrice(item) {
+  const value = Number(item?.price);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function imageFor(item) {
+  return item?.image || 'assets/comidas/genericas/pasta.webp';
+}
+
+// ---------------------------------------------------------------------------
+// Alérgenos
+// ---------------------------------------------------------------------------
+
+export function getAllergenInfo(item) {
+  return allergenCatalog[item?.legacyId] || null;
+}
+
+// Reúne todos los alérgenos de un producto, incluidos los desgloses por entrada.
+function collectAllergens(info) {
+  const contains = new Set();
+  const traces = new Set();
+  if (!info) return { contains, traces };
+
+  const push = (source) => {
+    (source?.contains || []).forEach((label) => contains.add(label));
+    (source?.traces || []).forEach((label) => traces.add(label));
+  };
+
+  push(info);
+  (info.entries || []).forEach(push);
+  return { contains, traces };
+}
+
+function toIds(labels) {
+  return [...labels].map(allergenIdFromLabel).filter(Boolean);
+}
+
+/**
+ * Severidad de un producto respecto a los alérgenos marcados por la mesa.
+ * 'alert' -> contiene alguno. 'warn' -> trazas, riesgo cruzado o hay que
+ * preguntar al personal. 'none' -> ninguna coincidencia.
+ */
+export function getAllergenSeverity(item) {
+  const info = getAllergenInfo(item);
+  if (!info || !table.allergens.length) return 'none';
+
+  const { contains, traces } = collectAllergens(info);
+  const selected = new Set(table.allergens);
+
+  if (toIds(contains).some((id) => selected.has(id))) return 'alert';
+  if (toIds(traces).some((id) => selected.has(id))) return 'warn';
+  // Productos que dependen de lo que elija el cliente: siempre hay que preguntar.
+  if (info.note && /consulta al personal/i.test(info.note)) return 'warn';
+  return 'none';
+}
+
+function matchedAllergenLabels(item) {
+  const info = getAllergenInfo(item);
+  if (!info) return { contains: [], traces: [] };
+  const { contains, traces } = collectAllergens(info);
+  const selected = new Set(table.allergens);
+  const filter = (set) =>
+    [...set].filter((label) => {
+      const id = allergenIdFromLabel(label);
+      return id && selected.has(id);
+    });
+  return { contains: filter(contains), traces: filter(traces) };
+}
+
+export function isSelectedAllergenLabel(label) {
+  const id = allergenIdFromLabel(label);
+  return Boolean(id && table.allergens.includes(id));
+}
+
+/** Aviso que main.js inyecta en la cabecera del modal de alérgenos. */
+export function buildAllergenBanner(item) {
+  const severity = getAllergenSeverity(item);
+  if (severity === 'none') return null;
+
+  const matched = matchedAllergenLabels(item);
+  const banner = document.createElement('div');
+  const title = document.createElement('strong');
+  const copy = document.createElement('span');
+
+  banner.className = severity === 'alert' ? 'smart-allergen-banner' : 'smart-allergen-banner is-warn';
+
+  if (severity === 'alert') {
+    title.textContent = '⛔ Contiene alérgenos marcados en vuestra mesa';
+    copy.textContent = `Coincide con: ${matched.contains.join(', ')}.`;
+  } else {
+    title.textContent = '⚠️ Riesgo de trazas o contaminación cruzada';
+    copy.textContent = matched.traces.length
+      ? `Puede contener trazas de: ${matched.traces.join(', ')}. Consulta al personal antes de pedirlo.`
+      : 'Depende de la preparación concreta. Consulta al personal antes de pedirlo.';
+  }
+
+  banner.append(title, copy);
+  return banner;
+}
+
+const severityCopy = {
+  alert: { label: 'Contiene', icon: '⛔' },
+  warn: { label: 'Trazas', icon: '⚠️' }
+};
+
+function createSeverityFlag(severity, className = 'smart-item-flag') {
+  const copy = severityCopy[severity];
+  if (!copy) return null;
+  const flag = document.createElement('span');
+  flag.className = `${className} is-${severity}`;
+  flag.textContent = `${copy.icon} ${copy.label}`;
+  return flag;
+}
+
+/** main.js llama a esto al pintar cada botón "Ver alérgenos". */
+export function decorateAllergenTrigger(button, item) {
+  const severity = getAllergenSeverity(item);
+  button.classList.remove('is-alert', 'is-warn');
+  button.querySelector('.smart-flag')?.remove();
+  if (severity === 'none') return;
+
+  button.classList.add(`is-${severity}`);
+  const flag = document.createElement('span');
+  flag.className = 'smart-flag';
+  flag.textContent = severity === 'alert' ? '⛔ Contiene' : '⚠️ Trazas';
+  button.append(flag);
+  button.setAttribute(
+    'aria-label',
+    `${severity === 'alert' ? 'Atención, contiene alérgenos de la mesa.' : 'Atención, posibles trazas.'} Ver alérgenos de ${itemTitle(item)}`
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Precios de línea
+// ---------------------------------------------------------------------------
+
+function unitPrice(item, selection) {
+  const options = selection.options || {};
+  const extras = selection.extras || [];
+  const config = getProductOptions(item.legacyId, selection.groupId);
+  let price = basePrice(item);
+
+  config.variants.forEach((variant) => {
+    const chosen = variant.options.find((option) => option.id === options[variant.id]);
+    if (!chosen) return;
+    if (typeof chosen.price === 'number') price = chosen.price;
+    if (typeof chosen.delta === 'number') price += chosen.delta;
+  });
+
+  config.extras.forEach((extra) => {
+    if (extras.includes(extra.id)) price += extra.delta || 0;
+  });
+
+  return Math.max(0, price);
+}
+
+function describeSelection(item, selection) {
+  const config = getProductOptions(item.legacyId, selection.groupId);
+  const parts = [];
+
+  config.variants.forEach((variant) => {
+    const chosen = variant.options.find((option) => option.id === selection.options?.[variant.id]);
+    if (chosen) parts.push(`${variant.label}: ${chosen.label}`);
+  });
+
+  const extraLabels = config.extras
+    .filter((extra) => (selection.extras || []).includes(extra.id))
+    .map((extra) => extra.label);
+  if (extraLabels.length) parts.push(`Extras: ${extraLabels.join(', ')}`);
+
+  return parts;
+}
+
+function lineKey(productId, selection) {
+  const options = Object.entries(selection.options || {})
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('|');
+  const extras = [...(selection.extras || [])].sort().join('|');
+  return `${productId}::${options}::${extras}`;
+}
+
+// ---------------------------------------------------------------------------
+// Carrito
+// ---------------------------------------------------------------------------
+
+function cartCount() {
+  return cart.reduce((total, line) => total + line.quantity, 0);
+}
+
+function cartTotal() {
+  return cart.reduce((total, line) => total + line.unitPrice * line.quantity, 0);
+}
+
+function addToCart(item, selection, quantity = 1) {
+  const entry = entryFor(item);
+  const key = lineKey(item.id, selection);
+  const existing = cart.find((line) => line.key === key);
+
+  if (existing) {
+    existing.quantity += quantity;
+    if (selection.note) existing.note = selection.note;
+  } else {
+    cart.push({
+      key,
+      productId: item.id,
+      legacyId: item.legacyId,
+      groupId: selection.groupId || entry?.groupId || null,
+      quantity,
+      unitPrice: unitPrice(item, selection),
+      options: { ...(selection.options || {}) },
+      extras: [...(selection.extras || [])],
+      note: selection.note || ''
+    });
+  }
+
+  persistCart();
+  renderCartBadge({ bump: true });
+  renderCart();
+}
+
+function updateQuantity(key, delta) {
+  const line = cart.find((entry) => entry.key === key);
+  if (!line) return;
+  line.quantity += delta;
+  if (line.quantity <= 0) cart = cart.filter((entry) => entry.key !== key);
+  persistCart();
+  renderCartBadge();
+  renderCart();
+}
+
+function removeLine(key) {
+  cart = cart.filter((entry) => entry.key !== key);
+  persistCart();
+  renderCartBadge();
+  renderCart();
+}
+
+function clearCart() {
+  cart = [];
+  persistCart();
+  renderCartBadge();
+  renderCart();
+}
+
+function cartHasProduct(productId) {
+  return cart.some((line) => line.productId === productId);
+}
+
+// ---------------------------------------------------------------------------
+// Motor de recomendaciones
+// ---------------------------------------------------------------------------
+
+function selectedTags() {
+  const tags = new Set();
+  table.preferences.forEach((prefId) => {
+    const preference = PREFERENCES.find((option) => option.id === prefId);
+    preference?.tags.forEach((tag) => tags.add(tag));
+  });
+  return tags;
+}
+
+function peopleCount() {
+  return Number(table.people) || 2;
+}
+
+/** Recomendaciones del banner inicial: preferencias + comensales + popularidad. */
+function buildInitialRecommendations() {
+  const tags = selectedTags();
+  const people = peopleCount();
+  const candidates = [];
+
+  catalog.all.forEach((entry) => {
+    // El banner solo destaca comida y dulces: las bebidas tienen su propia sección.
+    if (entry.kind === 'bebida') return;
+    if (!entry.item.isAvailable) return;
+    if (entry.item.hasDetail === false) return;
+    if (getAllergenSeverity(entry.item) === 'alert') return;
+
+    const meta = getProductMeta(entry.legacyId);
+    const matched = meta.tags.filter((tag) => tags.has(tag));
+    let score = meta.popularity * 0.6;
+    let reason = 'De lo más pedido';
+
+    if (matched.length) {
+      score += 45 + matched.length * 12;
+      const preference = PREFERENCES.find((option) => option.tags.some((tag) => matched.includes(tag)));
+      reason = preference ? `Porque os apetece ${preference.label.toLowerCase()}` : 'Encaja con vuestras preferencias';
+    } else if (tags.size) {
+      score -= 15;
+    }
+
+    if (people >= 4 && meta.tags.includes('compartir')) {
+      score += 26;
+      if (!matched.length) reason = `Va bien para ${people} personas`;
+    }
+    if (people <= 2 && meta.tags.includes('compartir') && basePrice(entry.item) >= 12) {
+      score -= 18;
+    }
+    if (people === 1 && meta.tags.includes('ligero')) {
+      score += 10;
+    }
+    if (getAllergenSeverity(entry.item) === 'warn') score -= 12;
+
+    candidates.push({ entry, score, reason, kind: entry.kind });
+  });
+
+  candidates.sort((a, b) => b.score - a.score);
+
+  // Máximo dos productos por familia para que el carrusel no repita registro.
+  const perKind = new Map();
+  const picked = [];
+  for (const candidate of candidates) {
+    const used = perKind.get(candidate.kind) || 0;
+    if (used >= 2) continue;
+    perKind.set(candidate.kind, used + 1);
+    picked.push(candidate);
+    if (picked.length === 4) break;
+  }
+  return picked;
+}
+
+/** Recomendaciones cruzadas al añadir un producto al carrito. */
+function buildPairings(entry) {
+  const people = peopleCount();
+  const ids = [...(pairingsByProduct[entry.legacyId] || []), ...(pairingsByKind[entry.kind] || [])];
+  if (people >= 4) ids.push(...groupPairings);
+
+  const seen = new Set();
+  const results = [];
+
+  for (const legacyId of ids) {
+    if (seen.has(legacyId)) continue;
+    seen.add(legacyId);
+
+    const candidate = entryByLegacyId(legacyId);
+    if (!candidate) continue;
+    if (candidate.item.id === entry.item.id) continue;
+    if (!candidate.item.isAvailable) continue;
+    if (cartHasProduct(candidate.item.id)) continue;
+    // Regla dura: un plato principal nunca sugiere otro plato principal.
+    if (entry.kind === 'principal' && candidate.kind === 'principal') continue;
+    // Con una sola persona no tiene sentido empujar tablas grandes.
+    if (people === 1 && getProductMeta(legacyId).tags.includes('compartir') && basePrice(candidate.item) >= 10) {
+      continue;
+    }
+    if (getAllergenSeverity(candidate.item) === 'alert') continue;
+
+    results.push(candidate);
+    if (results.length === 3) break;
+  }
+
+  return results;
+}
+
+const KIND_LABELS = {
+  entrante: 'Entrante o tapa para abrir boca.',
+  principal: 'Plato principal.',
+  acompanamiento: 'Acompañamiento: se pide junto a otro plato.',
+  dulce: 'Dulce y frío, ideal para terminar.',
+  bebida: 'Bebida.'
+};
+
+// La popularidad es un dato simulado para la demostración.
+function popularityCopy(popularity) {
+  if (popularity >= 85) return 'Uno de los más pedidos de la carta.';
+  if (popularity >= 70) return 'Muy pedido por nuestros clientes.';
+  if (popularity >= 55) return 'Una opción habitual en las mesas.';
+  return 'Una elección poco habitual, para salirse de lo típico.';
+}
+
+function recommendationReasonForPairing(entry, sourceEntry) {
+  if (sourceEntry.kind === 'principal' && entry.kind === 'acompanamiento') return 'Acompañamiento habitual';
+  if (entry.kind === 'dulce') return 'Para terminar';
+  if (getProductMeta(entry.legacyId).tags.includes('compartir')) return 'Para compartir';
+  return 'Se pide junto a este plato';
+}
+
+// ---------------------------------------------------------------------------
+// Construcción del DOM
+// ---------------------------------------------------------------------------
+
+const dom = {};
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function button(className, text, onClick) {
+  const node = el('button', className, text);
+  node.type = 'button';
+  if (onClick) node.addEventListener('click', onClick);
+  return node;
+}
+
+function lockScroll(locked) {
+  const anyOpen =
+    dom.onboarding?.classList.contains('is-open') ||
+    dom.sheet?.classList.contains('is-open') ||
+    dom.cart?.classList.contains('is-open') ||
+    dom.review?.classList.contains('is-open');
+  document.body.classList.toggle('smart-locked', locked || anyOpen);
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+
+const ONBOARDING_STEPS = ['intro', 'allergies', 'allergen-pick', 'people', 'preferences'];
+let onboardingStep = 'intro';
+let draft = null;
+
+function openOnboarding({ fromStart = true } = {}) {
+  draft = {
+    hasAllergies: table.hasAllergies,
+    allergens: [...table.allergens],
+    people: table.people,
+    preferences: [...table.preferences]
+  };
+  onboardingStep = fromStart ? 'intro' : 'allergies';
+  dom.onboarding.classList.add('is-open');
+  lockScroll(true);
+  renderOnboarding();
+}
+
+function closeOnboarding() {
+  dom.onboarding.classList.remove('is-open');
+  lockScroll(false);
+  dom.onboarding.textContent = '';
+}
+
+function finishOnboarding() {
+  table = {
+    configured: true,
+    hasAllergies: draft.hasAllergies,
+    allergens: draft.hasAllergies ? draft.allergens : [],
+    people: draft.people || 2,
+    preferences: draft.preferences
+  };
+  persistTable();
+  closeOnboarding();
+  refreshAll();
+}
+
+function stepIndex(step) {
+  // El paso de selección de alérgenos comparte tramo con la pregunta de sí/no.
+  const order = { intro: 0, allergies: 1, 'allergen-pick': 1, people: 2, preferences: 3 };
+  return order[step] ?? 0;
+}
+
+function renderOnboarding() {
+  dom.onboarding.textContent = '';
+
+  const panel = el('div', 'smart-onboarding-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  if (onboardingStep !== 'intro') {
+    const steps = el('div', 'smart-steps');
+    steps.setAttribute('aria-hidden', 'true');
+    for (let index = 0; index < 4; index += 1) {
+      const segment = el('span');
+      if (index <= stepIndex(onboardingStep)) segment.classList.add('is-done');
+      steps.append(segment);
+    }
+    panel.append(steps);
+  }
+
+  const body = el('div', 'smart-onboarding-body');
+  const actions = el('div', 'smart-onboarding-actions');
+
+  if (onboardingStep === 'intro') {
+    const logo = document.createElement('img');
+    logo.className = 'smart-onboarding-logo';
+    logo.src = 'assets/branding/logooriginaltavola.webp';
+    logo.alt = 'Tavola Chiringo';
+    panel.append(logo);
+    panel.append(el('p', 'smart-onboarding-eyebrow', 'Bienvenidos'));
+    panel.append(el('h2', null, 'Preparamos la carta a vuestra medida'));
+    panel.append(
+      el(
+        'p',
+        'smart-onboarding-copy',
+        'Tres preguntas rápidas y os enseñamos lo que mejor encaja con vuestra mesa. Podéis cambiarlo cuando queráis.'
+      )
+    );
+    actions.append(button('smart-btn is-quiet', 'Ir directo a la carta', () => {
+      table = { ...defaultTable, configured: true, people: 2 };
+      persistTable();
+      closeOnboarding();
+      refreshAll();
+    }));
+    actions.append(el('span', 'smart-spacer'));
+    actions.append(button('smart-btn', 'Empezar', () => {
+      onboardingStep = 'allergies';
+      renderOnboarding();
+    }));
+    panel.append(actions);
+    dom.onboarding.append(panel);
+    panel.querySelector('.smart-btn:last-child')?.focus({ preventScroll: true });
+    return;
+  }
+
+  if (onboardingStep === 'allergies') {
+    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 1 de 3'));
+    panel.append(el('h2', null, '¿Hay alergias o intolerancias en la mesa?'));
+    panel.append(
+      el('p', 'smart-onboarding-copy', 'Seguiréis viendo la carta completa. Solo marcaremos los platos que debáis mirar con lupa.')
+    );
+
+    const choice = el('div', 'smart-yesno');
+    const yes = button('', '', () => {
+      draft.hasAllergies = true;
+      onboardingStep = 'allergen-pick';
+      renderOnboarding();
+    });
+    yes.append(el('strong', null, 'Sí'), el('small', null, 'Nos avisáis de los platos con riesgo'));
+    const no = button('', '', () => {
+      draft.hasAllergies = false;
+      draft.allergens = [];
+      onboardingStep = 'people';
+      renderOnboarding();
+    });
+    no.append(el('strong', null, 'No'), el('small', null, 'Ninguna alergia ni intolerancia'));
+    choice.append(yes, no);
+    body.append(choice);
+
+    panel.append(body);
+    actions.append(el('span', 'smart-spacer'));
+    actions.append(button('smart-btn is-quiet', 'Saltar', () => {
+      draft.hasAllergies = false;
+      draft.allergens = [];
+      onboardingStep = 'people';
+      renderOnboarding();
+    }));
+    panel.append(actions);
+    dom.onboarding.append(panel);
+    yes.focus({ preventScroll: true });
+    return;
+  }
+
+  if (onboardingStep === 'allergen-pick') {
+    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 1 de 3'));
+    panel.append(el('h2', null, '¿Cuáles?'));
+    panel.append(el('p', 'smart-onboarding-copy', 'Marca todas las que haya en la mesa. Puedes elegir varias.'));
+
+    const chipset = el('div', 'smart-chipset');
+    ALLERGENS.forEach((allergen) => {
+      const chip = button('smart-chip', null, () => {
+        const index = draft.allergens.indexOf(allergen.id);
+        if (index >= 0) draft.allergens.splice(index, 1);
+        else draft.allergens.push(allergen.id);
+        chip.classList.toggle('is-selected');
+        chip.setAttribute('aria-pressed', String(chip.classList.contains('is-selected')));
+      });
+      chip.setAttribute('aria-pressed', String(draft.allergens.includes(allergen.id)));
+      if (draft.allergens.includes(allergen.id)) chip.classList.add('is-selected');
+      chip.append(el('span', 'smart-chip-check', '✓'), el('span', null, allergen.label));
+      chipset.append(chip);
+    });
+    body.append(chipset);
+
+    panel.append(body);
+    actions.append(button('smart-btn is-quiet', 'Atrás', () => {
+      onboardingStep = 'allergies';
+      renderOnboarding();
+    }));
+    actions.append(el('span', 'smart-spacer'));
+    actions.append(button('smart-btn', 'Continuar', () => {
+      onboardingStep = 'people';
+      renderOnboarding();
+    }));
+    panel.append(actions);
+    dom.onboarding.append(panel);
+    return;
+  }
+
+  if (onboardingStep === 'people') {
+    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 2 de 3'));
+    panel.append(el('h2', null, '¿Cuántos sois en la mesa?'));
+    panel.append(el('p', 'smart-onboarding-copy', 'Nos sirve para ajustar las raciones que os recomendamos.'));
+
+    const row = el('div', 'smart-people');
+    const moreWrap = el('div', 'smart-people-more smart-hidden');
+    const showMore = () => moreWrap.classList.remove('smart-hidden');
+
+    const paint = () => {
+      row.querySelectorAll('button').forEach((node) => {
+        const value = node.dataset.people;
+        const isMore = value === 'more';
+        const selected = isMore ? Number(draft.people) >= 6 : Number(value) === Number(draft.people);
+        node.classList.toggle('is-selected', selected);
+        node.setAttribute('aria-pressed', String(selected));
+      });
+      moreWrap.querySelectorAll('button').forEach((node) => {
+        const selected = Number(node.dataset.people) === Number(draft.people);
+        node.classList.toggle('is-selected', selected);
+        node.setAttribute('aria-pressed', String(selected));
+      });
+    };
+
+    [1, 2, 3, 4, 5].forEach((value) => {
+      const node = button('', String(value), () => {
+        draft.people = value;
+        moreWrap.classList.add('smart-hidden');
+        paint();
+      });
+      node.dataset.people = String(value);
+      row.append(node);
+    });
+
+    const more = button('', '6+', () => {
+      showMore();
+      paint();
+    });
+    more.dataset.people = 'more';
+    more.setAttribute('aria-label', 'Seis o más personas');
+    row.append(more);
+
+    moreWrap.append(el('p', null, '¿Cuántos exactamente?'));
+    const moreRow = el('div', 'smart-people');
+    [6, 7, 8, 9, 10, 12, 15, 20].forEach((value) => {
+      const node = button('', value === 20 ? '20+' : String(value), () => {
+        draft.people = value;
+        paint();
+      });
+      node.dataset.people = String(value);
+      moreRow.append(node);
+    });
+    moreWrap.append(moreRow);
+
+    if (Number(draft.people) >= 6) showMore();
+    body.append(row, moreWrap);
+    paint();
+
+    panel.append(body);
+    actions.append(button('smart-btn is-quiet', 'Atrás', () => {
+      onboardingStep = draft.hasAllergies ? 'allergen-pick' : 'allergies';
+      renderOnboarding();
+    }));
+    actions.append(el('span', 'smart-spacer'));
+    const next = button('smart-btn', 'Continuar', () => {
+      onboardingStep = 'preferences';
+      renderOnboarding();
+    });
+    actions.append(next);
+    panel.append(actions);
+    dom.onboarding.append(panel);
+    return;
+  }
+
+  // preferences
+  panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 3 de 3'));
+  panel.append(el('h2', null, '¿Qué os apetece hoy?'));
+  panel.append(
+    el(
+      'p',
+      'smart-onboarding-copy',
+      'Elige lo que quieras: solo personaliza las recomendaciones de arriba. La carta la seguiréis viendo entera.'
+    )
+  );
+
+  const chipset = el('div', 'smart-chipset');
+  PREFERENCES.forEach((preference) => {
+    const chip = button('smart-chip', null, () => {
+      const index = draft.preferences.indexOf(preference.id);
+      if (index >= 0) draft.preferences.splice(index, 1);
+      else draft.preferences.push(preference.id);
+      chip.classList.toggle('is-selected');
+      chip.setAttribute('aria-pressed', String(chip.classList.contains('is-selected')));
+    });
+    chip.setAttribute('aria-pressed', String(draft.preferences.includes(preference.id)));
+    if (draft.preferences.includes(preference.id)) chip.classList.add('is-selected');
+    const stack = el('div', 'smart-chip-stack');
+    stack.append(el('span', null, preference.label), el('small', null, preference.hint));
+    chip.append(el('span', 'smart-chip-check', '✓'), stack);
+    chipset.append(chip);
+  });
+  body.append(chipset);
+
+  panel.append(body);
+  actions.append(button('smart-btn is-quiet', 'Saltar preferencias', () => {
+    draft.preferences = [];
+    finishOnboarding();
+  }));
+  actions.append(el('span', 'smart-spacer'));
+  actions.append(button('smart-btn', 'Ver la carta', finishOnboarding));
+  panel.append(actions);
+  dom.onboarding.append(panel);
+}
+
+// ---------------------------------------------------------------------------
+// Barra de contexto de la mesa
+// ---------------------------------------------------------------------------
+
+function renderContext() {
+  dom.context.textContent = '';
+  if (!table.configured) return;
+
+  const facts = el('div', 'smart-context-facts');
+
+  const people = el('span', 'smart-fact');
+  people.append(document.createTextNode('👥 '), el('b', null, String(peopleCount())), document.createTextNode(peopleCount() === 1 ? ' persona' : ' personas'));
+  facts.append(people);
+
+  if (table.allergens.length) {
+    const labels = table.allergens
+      .map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label)
+      .filter(Boolean);
+    const allergyFact = el('span', 'smart-fact is-alert');
+    allergyFact.textContent = `⛔ ${labels.join(', ')}`;
+    facts.append(allergyFact);
+  } else {
+    facts.append(el('span', 'smart-fact', '✓ Sin alergias indicadas'));
+  }
+
+  if (table.preferences.length) {
+    const labels = table.preferences
+      .map((id) => PREFERENCES.find((preference) => preference.id === id)?.label)
+      .filter(Boolean);
+    facts.append(el('span', 'smart-fact', `🍽️ ${labels.join(' · ')}`));
+  }
+
+  dom.context.append(facts, button('smart-btn is-ghost', 'Cambiar preferencias', () => openOnboarding({ fromStart: false })));
+}
+
+// ---------------------------------------------------------------------------
+// Carrusel de recomendaciones
+// ---------------------------------------------------------------------------
+
+let carouselIndex = 0;
+let carouselTimer = null;
+let carouselSlides = [];
+
+function stopCarousel() {
+  window.clearInterval(carouselTimer);
+  carouselTimer = null;
+}
+
+function startCarousel() {
+  stopCarousel();
+  if (carouselSlides.length < 2) return;
+  carouselTimer = window.setInterval(() => goToSlide(carouselIndex + 1), CAROUSEL_INTERVAL);
+}
+
+function goToSlide(index) {
+  if (!carouselSlides.length) return;
+  carouselIndex = (index + carouselSlides.length) % carouselSlides.length;
+  dom.recoTrack.style.transform = `translateX(-${carouselIndex * 100}%)`;
+  dom.recoDots.querySelectorAll('button').forEach((dot, position) => {
+    dot.classList.toggle('is-active', position === carouselIndex);
+    dot.setAttribute('aria-current', String(position === carouselIndex));
+  });
+  carouselSlides.forEach((slide, position) => {
+    slide.setAttribute('aria-hidden', String(position !== carouselIndex));
+    slide.querySelector('button')?.setAttribute('tabindex', position === carouselIndex ? '0' : '-1');
+  });
+}
+
+function renderRecommendations() {
+  stopCarousel();
+  dom.reco.textContent = '';
+  carouselSlides = [];
+  carouselIndex = 0;
+
+  const picks = buildInitialRecommendations();
+  if (!picks.length) {
+    dom.reco.classList.add('smart-hidden');
+    return;
+  }
+  dom.reco.classList.remove('smart-hidden');
+
+  const head = el('div', 'smart-reco-head');
+  const headText = el('div');
+  headText.append(
+    el('p', null, table.preferences.length ? 'Elegido para vuestra mesa' : 'Lo que más gusta'),
+    el('h2', null, table.preferences.length ? 'Os recomendamos' : 'Favoritos de la casa')
+  );
+  head.append(headText);
+
+  const viewport = el('div', 'smart-reco-viewport');
+  const track = el('div', 'smart-reco-track');
+  dom.recoTrack = track;
+
+  picks.forEach((pick) => {
+    const slide = el('div', 'smart-reco-slide');
+    slide.setAttribute('role', 'group');
+    const card = button('smart-reco-card', null, () => openProductSheet(pick.entry.item, pick.entry.groupId));
+
+    const image = document.createElement('img');
+    image.src = imageFor(pick.entry.item);
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+
+    const copy = el('div', 'smart-reco-copy');
+    copy.append(el('span', 'smart-reco-reason', pick.reason));
+    copy.append(el('h3', null, itemTitle(pick.entry.item)));
+    const description = itemDescription(pick.entry.item);
+    if (description) copy.append(el('p', null, description));
+
+    const meta = el('div', 'smart-reco-meta');
+    meta.append(el('span', 'smart-reco-price', host.getItemPrice(pick.entry.item)));
+    const flag = createSeverityFlag(getAllergenSeverity(pick.entry.item));
+    if (flag) meta.append(flag);
+    copy.append(meta);
+
+    card.append(image, copy);
+    card.setAttribute('aria-label', `Ver ${itemTitle(pick.entry.item)}. ${pick.reason}.`);
+    slide.append(card);
+    track.append(slide);
+    carouselSlides.push(slide);
+  });
+
+  viewport.append(track);
+
+  const controls = el('div', 'smart-reco-controls');
+  const prev = button('smart-reco-arrow', '‹', () => {
+    goToSlide(carouselIndex - 1);
+    startCarousel();
+  });
+  prev.setAttribute('aria-label', 'Recomendación anterior');
+  const next = button('smart-reco-arrow', '›', () => {
+    goToSlide(carouselIndex + 1);
+    startCarousel();
+  });
+  next.setAttribute('aria-label', 'Siguiente recomendación');
+
+  const dots = el('div', 'smart-reco-dots');
+  dom.recoDots = dots;
+  picks.forEach((pick, index) => {
+    const dot = button('', '', () => {
+      goToSlide(index);
+      startCarousel();
+    });
+    dot.setAttribute('aria-label', `Ver recomendación ${index + 1}`);
+    dots.append(dot);
+  });
+
+  controls.append(prev, dots, next);
+  dom.reco.append(head, viewport, controls);
+
+  // Arrastre horizontal para móvil.
+  let dragStart = null;
+  viewport.addEventListener('pointerdown', (event) => {
+    dragStart = event.clientX;
+    stopCarousel();
+  });
+  viewport.addEventListener('pointerup', (event) => {
+    if (dragStart == null) return;
+    const delta = event.clientX - dragStart;
+    dragStart = null;
+    if (Math.abs(delta) > 40) goToSlide(carouselIndex + (delta < 0 ? 1 : -1));
+    startCarousel();
+  });
+  viewport.addEventListener('pointercancel', () => {
+    dragStart = null;
+    startCarousel();
+  });
+
+  goToSlide(0);
+  startCarousel();
+}
+
+// ---------------------------------------------------------------------------
+// Combinaciones populares
+// ---------------------------------------------------------------------------
+
+function comboEntries(combo) {
+  return combo.items.map(entryByLegacyId).filter(Boolean);
+}
+
+function renderCombos() {
+  dom.combos.textContent = '';
+  const usable = popularCombos.filter((combo) => comboEntries(combo).length >= 2);
+  if (!usable.length) {
+    dom.combos.classList.add('smart-hidden');
+    return;
+  }
+  dom.combos.classList.remove('smart-hidden');
+
+  const head = el('div', 'smart-reco-head');
+  const headText = el('div');
+  headText.append(el('p', null, 'Lo que más se pide junto'), el('h2', null, 'Combinaciones populares'));
+  head.append(headText);
+
+  const grid = el('div', 'smart-combos-grid');
+  usable.forEach((combo) => {
+    const entries = comboEntries(combo);
+    const total = entries.reduce((sum, entry) => sum + basePrice(entry.item), 0);
+    const card = button('smart-combo-card', null, () => openComboSheet(combo));
+
+    const thumbs = el('div', 'smart-combo-thumbs');
+    entries.slice(0, 4).forEach((entry) => {
+      const image = document.createElement('img');
+      image.src = imageFor(entry.item);
+      image.alt = '';
+      image.loading = 'lazy';
+      image.decoding = 'async';
+      thumbs.append(image);
+    });
+
+    card.append(thumbs);
+    card.append(el('strong', null, combo.name));
+    card.append(el('small', null, `${combo.tagline} · ${entries.map((entry) => itemTitle(entry.item)).join(' · ')}`));
+    card.append(el('b', null, `${formatPrice(total)} en total`));
+    card.setAttribute('aria-label', `Ver la combinación ${combo.name}`);
+    grid.append(card);
+  });
+
+  dom.combos.append(head, grid);
+}
+
+// ---------------------------------------------------------------------------
+// Ficha ampliada de producto
+// ---------------------------------------------------------------------------
+
+let sheetReturnFocus = null;
+
+function openSheet(buildContent) {
+  sheetReturnFocus = document.activeElement;
+  dom.sheet.textContent = '';
+
+  const panel = el('div', 'smart-sheet-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  const close = button('smart-sheet-close', '×', closeSheet);
+  close.setAttribute('aria-label', 'Cerrar ficha');
+  panel.append(close);
+
+  buildContent(panel);
+
+  dom.sheet.append(panel);
+  dom.sheet.classList.add('is-open');
+  lockScroll(true);
+  close.focus({ preventScroll: true });
+}
+
+function closeSheet() {
+  dom.sheet.classList.remove('is-open');
+  dom.sheet.textContent = '';
+  lockScroll(false);
+  if (sheetReturnFocus?.isConnected) sheetReturnFocus.focus({ preventScroll: true });
+  sheetReturnFocus = null;
+}
+
+export function openProductSheet(item, groupId) {
+  const entry = entryFor(item) || { item, groupId, kind: getProductKind(item.legacyId, groupId) };
+  const config = getProductOptions(item.legacyId, entry.groupId);
+
+  const selection = {
+    groupId: entry.groupId,
+    options: {},
+    extras: [],
+    note: ''
+  };
+  config.variants.forEach((variant) => {
+    selection.options[variant.id] = variant.options[0].id;
+  });
+  let quantity = 1;
+
+  openSheet((panel) => {
+    const hero = el('div', 'smart-sheet-hero');
+    const image = document.createElement('img');
+    image.src = imageFor(item);
+    image.alt = itemTitle(item);
+    image.decoding = 'async';
+    hero.append(image);
+    panel.append(hero);
+
+    const body = el('div', 'smart-sheet-body');
+    body.append(el('p', 'smart-sheet-eyebrow', entry.groupName || entry.sectionName || ''));
+    body.append(el('h2', null, itemTitle(item)));
+
+    const price = el('span', 'smart-sheet-price');
+    body.append(price);
+
+    const description = itemDescription(item);
+    if (description) body.append(el('p', 'smart-sheet-desc', description));
+
+    const meta = getProductMeta(item.legacyId);
+    if (meta.tags.length) {
+      const tags = el('div', 'smart-sheet-tags');
+      meta.tags.forEach((tag) => {
+        const preference = PREFERENCES.find((option) => option.tags.includes(tag));
+        tags.append(el('span', 'smart-tag', preference?.label || tag));
+      });
+      body.append(tags);
+    }
+
+    // Información del plato --------------------------------------------------
+    const infoSection = el('div', 'smart-sheet-section');
+    infoSection.append(el('h3', null, 'Información del plato'));
+    const infoList = el('ul', 'smart-sheet-ingredients');
+    KIND_LABELS[entry.kind] && infoList.append(el('li', null, KIND_LABELS[entry.kind]));
+    if (entry.groupName) infoList.append(el('li', null, `Categoría: ${entry.groupName}`));
+    infoList.append(el('li', null, popularityCopy(meta.popularity)));
+    if (meta.tags.includes('vegetariano')) infoList.append(el('li', null, 'Apto para vegetarianos.'));
+    if (meta.tags.includes('compartir')) {
+      infoList.append(el('li', null, `Pensado para compartir: cunde bien para ${peopleCount()} en la mesa.`));
+    }
+    if (!item.isAvailable) infoList.append(el('li', null, 'Agotado ahora mismo.'));
+    infoSection.append(infoList);
+    body.append(infoSection);
+
+    // Alérgenos ------------------------------------------------------------
+    const allergenSection = el('div', 'smart-sheet-section');
+    allergenSection.append(el('h3', null, 'Alérgenos e información'));
+    const info = getAllergenInfo(item);
+    const severity = getAllergenSeverity(item);
+
+    if (severity !== 'none') {
+      const banner = buildAllergenBanner(item);
+      if (banner) allergenSection.append(banner);
+    }
+
+    const allergenButton = button('smart-btn is-ghost', 'Ver alérgenos completos', () =>
+      host.openAllergenModal(item, allergenButton)
+    );
+    if (severity === 'alert') allergenButton.classList.add('is-danger');
+    allergenSection.append(allergenButton);
+
+    if (info?.note) allergenSection.append(el('p', 'smart-allergen-note', info.note));
+    if (!info) {
+      allergenSection.append(
+        el('p', 'smart-allergen-note', 'Consulta al personal para conocer los alérgenos de este producto.')
+      );
+    }
+    body.append(allergenSection);
+
+    // Variantes y extras ---------------------------------------------------
+    const updatePrice = () => {
+      price.textContent = `${formatPrice(unitPrice(item, selection))} · unidad`;
+    };
+
+    if (config.variants.length || config.extras.length) {
+      const optionsSection = el('div', 'smart-sheet-section');
+      optionsSection.append(el('h3', null, 'Elige tu versión'));
+
+      config.variants.forEach((variant) => {
+        const block = el('div', 'smart-variant');
+        block.append(el('span', null, variant.label));
+        const chipset = el('div', 'smart-chipset');
+        variant.options.forEach((option) => {
+          const suffix =
+            typeof option.price === 'number'
+              ? ` · ${formatPrice(option.price)}`
+              : option.delta
+                ? ` · +${formatPrice(option.delta)}`
+                : '';
+          const chip = button('smart-chip', `${option.label}${suffix}`, () => {
+            selection.options[variant.id] = option.id;
+            chipset.querySelectorAll('.smart-chip').forEach((node) => {
+              node.classList.toggle('is-selected', node === chip);
+              node.setAttribute('aria-pressed', String(node === chip));
+            });
+            updatePrice();
+          });
+          if (selection.options[variant.id] === option.id) chip.classList.add('is-selected');
+          chip.setAttribute('aria-pressed', String(selection.options[variant.id] === option.id));
+          chipset.append(chip);
+        });
+        block.append(chipset);
+        optionsSection.append(block);
+      });
+
+      if (config.extras.length) {
+        const block = el('div', 'smart-variant');
+        block.append(el('span', null, 'Extras'));
+        const chipset = el('div', 'smart-chipset');
+        config.extras.forEach((extra) => {
+          const suffix = extra.delta ? ` · +${formatPrice(extra.delta)}` : '';
+          const chip = button('smart-chip', null, () => {
+            const index = selection.extras.indexOf(extra.id);
+            if (index >= 0) selection.extras.splice(index, 1);
+            else selection.extras.push(extra.id);
+            chip.classList.toggle('is-selected');
+            chip.setAttribute('aria-pressed', String(chip.classList.contains('is-selected')));
+            updatePrice();
+          });
+          chip.setAttribute('aria-pressed', 'false');
+          chip.append(el('span', 'smart-chip-check', '✓'), el('span', null, `${extra.label}${suffix}`));
+          chipset.append(chip);
+        });
+        block.append(chipset);
+        optionsSection.append(block);
+      }
+
+      body.append(optionsSection);
+    }
+
+    // Observaciones --------------------------------------------------------
+    const noteSection = el('div', 'smart-sheet-section');
+    noteSection.append(el('h3', null, 'Observaciones (opcional)'));
+    const note = document.createElement('textarea');
+    note.className = 'smart-note-field';
+    note.placeholder = 'Sin cebolla, poco hecho, alergia leve…';
+    note.addEventListener('input', () => {
+      selection.note = note.value.trim();
+    });
+    noteSection.append(note);
+    body.append(noteSection);
+
+    // Cantidad + añadir ----------------------------------------------------
+    const footer = el('div', 'smart-sheet-footer');
+    const qty = el('div', 'smart-qty');
+    const output = document.createElement('output');
+    output.textContent = String(quantity);
+    const minus = button('', '−', () => {
+      quantity = Math.max(1, quantity - 1);
+      output.textContent = String(quantity);
+      minus.disabled = quantity === 1;
+    });
+    minus.disabled = true;
+    minus.setAttribute('aria-label', 'Quitar una unidad');
+    const plus = button('', '+', () => {
+      quantity = Math.min(30, quantity + 1);
+      output.textContent = String(quantity);
+      minus.disabled = quantity === 1;
+    });
+    plus.setAttribute('aria-label', 'Añadir una unidad');
+    qty.append(minus, output, plus);
+
+    const addButton = button('smart-btn', 'Añadir al carrito', () => {
+      addToCart(item, selection, quantity);
+      showAddedView(panel, entry, quantity);
+    });
+    if (!item.isAvailable) {
+      addButton.disabled = true;
+      addButton.textContent = 'Agotado ahora mismo';
+    }
+
+    footer.append(qty, addButton);
+    body.append(footer);
+    panel.append(body);
+
+    updatePrice();
+  });
+}
+
+/** Transición dentro de la misma ficha: confirmación + recomendaciones cruzadas. */
+function showAddedView(panel, entry, quantity) {
+  panel.querySelector('.smart-sheet-hero')?.remove();
+  const body = panel.querySelector('.smart-sheet-body');
+  if (!body) return;
+  body.textContent = '';
+
+  const added = el('div', 'smart-added');
+  added.append(el('strong', null, `${quantity} × ${itemTitle(entry.item)} en el pedido`));
+  added.append(el('small', null, 'Puedes seguir añadiendo o revisar el pedido cuando queráis.'));
+  body.append(added);
+
+  const suggestions = buildPairings(entry);
+  const chosen = new Set();
+
+  if (suggestions.length) {
+    const section = el('div', 'smart-sheet-section');
+    section.append(el('h3', null, pairingHeadings[entry.kind] || 'Se suele pedir con'));
+
+    const list = el('div', 'smart-pairing-list');
+    suggestions.forEach((candidate) => {
+      const row = button('smart-pairing', null, () => {
+        if (chosen.has(candidate)) chosen.delete(candidate);
+        else chosen.add(candidate);
+        row.classList.toggle('is-selected', chosen.has(candidate));
+        row.setAttribute('aria-pressed', String(chosen.has(candidate)));
+        addChosen.disabled = chosen.size === 0;
+        addChosen.textContent = chosen.size
+          ? `Añadir ${chosen.size} ${chosen.size === 1 ? 'sugerencia' : 'sugerencias'}`
+          : 'Añadir seleccionados';
+      });
+      row.setAttribute('aria-pressed', 'false');
+
+      const image = document.createElement('img');
+      image.src = imageFor(candidate.item);
+      image.alt = '';
+      image.loading = 'lazy';
+      image.decoding = 'async';
+
+      const copy = el('div', 'smart-pairing-copy');
+      copy.append(el('strong', null, itemTitle(candidate.item)));
+      copy.append(el('small', null, recommendationReasonForPairing(candidate, entry)));
+      copy.append(el('b', null, host.getItemPrice(candidate.item)));
+      const flag = createSeverityFlag(getAllergenSeverity(candidate.item));
+      if (flag) copy.append(flag);
+
+      row.append(image, copy, el('span', 'smart-pairing-check', '✓'));
+      list.append(row);
+    });
+    section.append(list);
+
+    const addChosen = button('smart-btn is-block', 'Añadir seleccionados', () => {
+      chosen.forEach((candidate) => {
+        const config = getProductOptions(candidate.legacyId, candidate.groupId);
+        const selection = { groupId: candidate.groupId, options: {}, extras: [], note: '' };
+        config.variants.forEach((variant) => {
+          selection.options[variant.id] = variant.options[0].id;
+        });
+        addToCart(candidate.item, selection, 1);
+      });
+      closeSheet();
+      openCart();
+    });
+    addChosen.disabled = true;
+    addChosen.style.marginTop = '12px';
+    section.append(addChosen);
+    body.append(section);
+  }
+
+  const footer = el('div', 'smart-sheet-footer');
+  footer.append(button('smart-btn is-ghost', 'Seguir pidiendo', closeSheet));
+  footer.append(
+    button('smart-btn', `Ver el pedido · ${formatPrice(cartTotal())}`, () => {
+      closeSheet();
+      openCart();
+    })
+  );
+  body.append(footer);
+}
+
+/** Ficha de una combinación popular: se revisa y se añade completa o en parte. */
+function openComboSheet(combo) {
+  const entries = comboEntries(combo);
+  const chosen = new Set(entries);
+
+  openSheet((panel) => {
+    const body = el('div', 'smart-sheet-body');
+    body.style.paddingTop = '24px';
+    body.append(el('p', 'smart-sheet-eyebrow', 'Combinación popular'));
+    body.append(el('h2', null, combo.name));
+    body.append(el('p', 'smart-sheet-desc', `${combo.tagline}. No es un menú cerrado: quita lo que no os apetezca.`));
+
+    const section = el('div', 'smart-sheet-section');
+    section.append(el('h3', null, 'Qué incluye'));
+    const list = el('div', 'smart-pairing-list');
+    const totalRow = el('div', 'smart-combo-total');
+    const totalValue = el('b');
+
+    const refreshTotal = () => {
+      const total = [...chosen].reduce((sum, entry) => sum + basePrice(entry.item), 0);
+      totalValue.textContent = formatPrice(total);
+      addButton.disabled = chosen.size === 0;
+    };
+
+    entries.forEach((entry) => {
+      const row = button('smart-pairing is-selected', null, () => {
+        if (chosen.has(entry)) chosen.delete(entry);
+        else chosen.add(entry);
+        row.classList.toggle('is-selected', chosen.has(entry));
+        row.setAttribute('aria-pressed', String(chosen.has(entry)));
+        refreshTotal();
+      });
+      row.setAttribute('aria-pressed', 'true');
+
+      const image = document.createElement('img');
+      image.src = imageFor(entry.item);
+      image.alt = '';
+      image.loading = 'lazy';
+      image.decoding = 'async';
+
+      const copy = el('div', 'smart-pairing-copy');
+      copy.append(el('strong', null, itemTitle(entry.item)));
+      copy.append(el('small', null, entry.groupName || ''));
+      copy.append(el('b', null, host.getItemPrice(entry.item)));
+      const flag = createSeverityFlag(getAllergenSeverity(entry.item));
+      if (flag) copy.append(flag);
+
+      row.append(image, copy, el('span', 'smart-pairing-check', '✓'));
+      list.append(row);
+    });
+
+    section.append(list);
+    totalRow.append(el('span', null, 'Total de lo seleccionado'), totalValue);
+    section.append(totalRow);
+    body.append(section);
+
+    const footer = el('div', 'smart-sheet-footer');
+    footer.append(button('smart-btn is-ghost', 'Volver a la carta', closeSheet));
+    const addButton = button('smart-btn', 'Añadir al carrito', () => {
+      chosen.forEach((entry) => {
+        const config = getProductOptions(entry.legacyId, entry.groupId);
+        const selection = { groupId: entry.groupId, options: {}, extras: [], note: '' };
+        config.variants.forEach((variant) => {
+          selection.options[variant.id] = variant.options[0].id;
+        });
+        addToCart(entry.item, selection, 1);
+      });
+      closeSheet();
+      openCart();
+    });
+    footer.append(addButton);
+    body.append(footer);
+    panel.append(body);
+    refreshTotal();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Carrito
+// ---------------------------------------------------------------------------
+
+function renderCartBadge({ bump = false } = {}) {
+  const count = cartCount();
+  dom.cartCount.textContent = String(count);
+  dom.cartFab.setAttribute('aria-label', `Ver el pedido, ${count} ${count === 1 ? 'producto' : 'productos'}`);
+  dom.cartFab.classList.toggle('smart-hidden', false);
+
+  if (bump) {
+    dom.cartFab.classList.remove('is-bumped');
+    void dom.cartFab.offsetWidth;
+    dom.cartFab.classList.add('is-bumped');
+  }
+}
+
+function openCart() {
+  renderCart();
+  dom.cart.classList.add('is-open');
+  lockScroll(true);
+  dom.cart.querySelector('.smart-cart-close')?.focus({ preventScroll: true });
+}
+
+function closeCart() {
+  dom.cart.classList.remove('is-open');
+  lockScroll(false);
+}
+
+function renderCart() {
+  const items = dom.cart.querySelector('.smart-cart-items');
+  const foot = dom.cart.querySelector('.smart-cart-foot');
+  if (!items || !foot) return;
+
+  items.textContent = '';
+  foot.textContent = '';
+
+  if (!cart.length) {
+    const empty = el('div', 'smart-cart-empty');
+    empty.append(el('strong', null, 'Todavía no habéis añadido nada'));
+    empty.append(el('p', null, 'Abre cualquier producto de la carta y pulsa “Añadir al carrito”.'));
+    empty.append(button('smart-btn', 'Volver a la carta', closeCart));
+    items.append(empty);
+    dom.cart.querySelector('.smart-cart-head p').textContent = 'Pedido vacío';
+    return;
+  }
+
+  dom.cart.querySelector('.smart-cart-head p').textContent =
+    `${cartCount()} ${cartCount() === 1 ? 'producto' : 'productos'} · mesa de ${peopleCount()}`;
+
+  cart.forEach((line) => {
+    const entry = catalog.byId.get(line.productId);
+    if (!entry) return;
+    const item = entry.item;
+
+    const row = el('div', 'smart-line');
+    const image = document.createElement('img');
+    image.src = imageFor(item);
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+
+    const bodyBlock = el('div', 'smart-line-body');
+    const title = el('div', 'smart-line-title');
+    title.append(el('strong', null, itemTitle(item)), el('b', null, formatPrice(line.unitPrice * line.quantity)));
+    bodyBlock.append(title);
+
+    const details = describeSelection(item, { ...line, groupId: line.groupId });
+    if (details.length) bodyBlock.append(el('p', 'smart-line-detail', details.join(' · ')));
+
+    const severity = getAllergenSeverity(item);
+    if (severity !== 'none') {
+      const matched = matchedAllergenLabels(item);
+      const warning = el('span', `smart-item-flag is-${severity}`);
+      warning.textContent =
+        severity === 'alert'
+          ? `⛔ Contiene ${matched.contains.join(', ')}`
+          : `⚠️ Posibles trazas${matched.traces.length ? ` de ${matched.traces.join(', ')}` : ''}`;
+      bodyBlock.append(warning);
+    }
+
+    if (line.note) bodyBlock.append(el('p', 'smart-line-note', `“${line.note}”`));
+
+    const actions = el('div', 'smart-line-actions');
+    const qty = el('div', 'smart-qty');
+    const minus = button('', '−', () => updateQuantity(line.key, -1));
+    minus.setAttribute('aria-label', `Quitar una unidad de ${itemTitle(item)}`);
+    const output = document.createElement('output');
+    output.textContent = String(line.quantity);
+    const plus = button('', '+', () => updateQuantity(line.key, 1));
+    plus.setAttribute('aria-label', `Añadir una unidad de ${itemTitle(item)}`);
+    qty.append(minus, output, plus);
+
+    const editNote = button('smart-icon-btn', line.note ? '✏️ Editar nota' : '✏️ Añadir nota', () => {
+      const next = window.prompt(`Observaciones para ${itemTitle(item)}`, line.note || '');
+      if (next === null) return;
+      line.note = next.trim();
+      persistCart();
+      renderCart();
+    });
+
+    const remove = button('smart-icon-btn is-danger', '🗑 Quitar', () => removeLine(line.key));
+
+    actions.append(qty, editNote, remove);
+    bodyBlock.append(actions);
+    row.append(image, bodyBlock);
+    items.append(row);
+  });
+
+  const totalRow = el('div', 'smart-total-row');
+  totalRow.append(el('span', null, 'Total'), el('b', null, formatPrice(cartTotal())));
+  foot.append(totalRow);
+
+  const actions = el('div', 'smart-cart-actions');
+  const row = el('div', 'smart-cart-actions-row');
+  row.append(button('smart-btn is-ghost', 'Volver a la carta', closeCart));
+  row.append(
+    button('smart-btn is-danger', 'Vaciar carrito', () => {
+      if (window.confirm('¿Vaciar el carrito?')) clearCart();
+    })
+  );
+  actions.append(row);
+  actions.append(
+    button('smart-btn is-block', 'Revisar el pedido', () => {
+      closeCart();
+      openReview();
+    })
+  );
+  foot.append(actions);
+}
+
+// ---------------------------------------------------------------------------
+// Revisión del pedido y confirmación simulada
+// ---------------------------------------------------------------------------
+
+function openReview() {
+  renderReview();
+  dom.review.classList.add('is-open');
+  lockScroll(true);
+}
+
+function closeReview() {
+  dom.review.classList.remove('is-open');
+  dom.review.textContent = '';
+  lockScroll(false);
+}
+
+function renderReview() {
+  dom.review.textContent = '';
+
+  const panel = el('div', 'smart-review-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  panel.append(el('p', 'smart-onboarding-eyebrow', 'Revisión del pedido'));
+  panel.append(el('h2', null, 'Repasad antes de confirmar'));
+  panel.append(
+    el('p', 'smart-review-lead', 'Esto es una demostración: no se envía nada a cocina ni se cobra ningún importe.')
+  );
+
+  // Datos de la mesa -------------------------------------------------------
+  const tableBlock = el('div', 'smart-review-block');
+  tableBlock.append(el('h3', null, 'Vuestra mesa'));
+  const facts = el('div', 'smart-context-facts');
+  facts.append(el('span', 'smart-fact', `👥 ${peopleCount()} ${peopleCount() === 1 ? 'persona' : 'personas'}`));
+  if (table.allergens.length) {
+    const labels = table.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label).filter(Boolean);
+    facts.append(el('span', 'smart-fact is-alert', `⛔ ${labels.join(', ')}`));
+  } else {
+    facts.append(el('span', 'smart-fact', '✓ Sin alergias indicadas'));
+  }
+  if (table.preferences.length) {
+    const labels = table.preferences
+      .map((id) => PREFERENCES.find((preference) => preference.id === id)?.label)
+      .filter(Boolean);
+    facts.append(el('span', 'smart-fact', `🍽️ ${labels.join(' · ')}`));
+  }
+  tableBlock.append(facts);
+  panel.append(tableBlock);
+
+  // Advertencias -----------------------------------------------------------
+  const flagged = cart
+    .map((line) => ({ line, entry: catalog.byId.get(line.productId) }))
+    .filter(({ entry }) => entry && getAllergenSeverity(entry.item) !== 'none');
+
+  if (flagged.length) {
+    const warnBlock = el('div', 'smart-review-block');
+    warnBlock.append(el('h3', null, 'Atención con estos productos'));
+    flagged.forEach(({ entry }) => {
+      const severity = getAllergenSeverity(entry.item);
+      const matched = matchedAllergenLabels(entry.item);
+      const banner = el('div', severity === 'alert' ? 'smart-allergen-banner' : 'smart-allergen-banner is-warn');
+      banner.append(el('strong', null, `${severity === 'alert' ? '⛔' : '⚠️'} ${itemTitle(entry.item)}`));
+      banner.append(
+        el(
+          'span',
+          null,
+          severity === 'alert'
+            ? `Contiene ${matched.contains.join(', ')}. Avisad al personal al confirmar.`
+            : `Posibles trazas${matched.traces.length ? ` de ${matched.traces.join(', ')}` : ''}. Consultad al personal.`
+        )
+      );
+      warnBlock.append(banner);
+    });
+    panel.append(warnBlock);
+  }
+
+  // Productos --------------------------------------------------------------
+  const itemsBlock = el('div', 'smart-review-block');
+  itemsBlock.append(el('h3', null, 'Resumen del pedido'));
+  cart.forEach((line) => {
+    const entry = catalog.byId.get(line.productId);
+    if (!entry) return;
+    const row = el('div', 'smart-review-row');
+    row.append(el('span', 'smart-review-qty', `${line.quantity}×`));
+
+    const name = el('div', 'smart-review-name');
+    name.append(el('strong', null, itemTitle(entry.item)));
+    const details = describeSelection(entry.item, { ...line, groupId: line.groupId });
+    if (details.length) name.append(el('small', null, details.join(' · ')));
+    if (line.note) name.append(el('em', null, `“${line.note}”`));
+    row.append(name);
+
+    row.append(el('span', 'smart-review-amount', formatPrice(line.unitPrice * line.quantity)));
+    itemsBlock.append(row);
+  });
+  panel.append(itemsBlock);
+
+  const total = el('div', 'smart-review-total');
+  total.append(el('span', null, 'Total'), el('b', null, formatPrice(cartTotal())));
+  panel.append(total);
+
+  const actions = el('div', 'smart-review-actions');
+  actions.append(
+    button('smart-btn is-block', 'Confirmar pedido de prueba', () => {
+      renderSuccess();
+    })
+  );
+  actions.append(
+    button('smart-btn is-ghost is-block', 'Seguir editando el pedido', () => {
+      closeReview();
+      openCart();
+    })
+  );
+  panel.append(actions);
+  panel.append(
+    el('p', 'smart-demo-note', 'Prototipo de demostración · No se genera ninguna comanda real ni ningún cobro.')
+  );
+
+  dom.review.append(panel);
+}
+
+function renderSuccess() {
+  const items = cartCount();
+  const total = cartTotal();
+
+  dom.review.textContent = '';
+  const panel = el('div', 'smart-review-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  const success = el('div', 'smart-success');
+  success.append(el('div', 'smart-success-mark', '✓'));
+  success.append(el('h2', null, 'Demostración completada'));
+  success.append(
+    el(
+      'p',
+      null,
+      `Habéis simulado un pedido de ${items} ${items === 1 ? 'producto' : 'productos'} por ${formatPrice(total)}. En el producto final, aquí saldría la comanda hacia cocina y barra.`
+    )
+  );
+  panel.append(success);
+
+  const actions = el('div', 'smart-review-actions');
+  actions.append(
+    button('smart-btn is-block', 'Empezar otra demostración', () => {
+      clearCart();
+      closeReview();
+      openOnboarding();
+    })
+  );
+  actions.append(
+    button('smart-btn is-ghost is-block', 'Volver a la carta', () => {
+      clearCart();
+      closeReview();
+    })
+  );
+  panel.append(actions);
+  panel.append(el('p', 'smart-demo-note', 'Ningún pedido real ha sido enviado.'));
+  dom.review.append(panel);
+}
+
+// ---------------------------------------------------------------------------
+// Montaje
+// ---------------------------------------------------------------------------
+
+function buildShell() {
+  dom.context = document.querySelector('#smartContext');
+  dom.reco = document.querySelector('#smartReco');
+  dom.combos = document.querySelector('#smartCombos');
+  dom.onboarding = document.querySelector('#smartOnboarding');
+  dom.sheet = document.querySelector('#smartSheet');
+  dom.cart = document.querySelector('#smartCart');
+  dom.review = document.querySelector('#smartReview');
+  dom.cartFab = document.querySelector('#smartCartFab');
+  dom.cartCount = document.querySelector('#smartCartCount');
+
+  dom.cartFab.addEventListener('click', openCart);
+
+  // El carrusel se repinta muchas veces; estos listeners viven en el contenedor
+  // fijo para no acumularse en cada render.
+  dom.reco.addEventListener('mouseenter', stopCarousel);
+  dom.reco.addEventListener('mouseleave', startCarousel);
+  dom.reco.addEventListener('focusin', stopCarousel);
+  dom.reco.addEventListener('focusout', startCarousel);
+
+  // Estructura fija del panel de carrito.
+  const overlayPanel = el('div', 'smart-cart-panel');
+  overlayPanel.setAttribute('role', 'dialog');
+  overlayPanel.setAttribute('aria-modal', 'true');
+  overlayPanel.setAttribute('aria-label', 'Vuestro pedido');
+
+  const head = el('div', 'smart-cart-head');
+  const headText = el('div');
+  headText.append(el('h2', null, 'Vuestro pedido'), el('p', null, ''));
+  const close = button('smart-sheet-close smart-cart-close', '×', closeCart);
+  close.style.position = 'static';
+  close.setAttribute('aria-label', 'Cerrar el pedido');
+  head.append(headText, close);
+
+  overlayPanel.append(head, el('div', 'smart-cart-items'), el('div', 'smart-cart-foot'));
+  dom.cart.append(overlayPanel);
+
+  dom.cart.addEventListener('click', (event) => {
+    if (event.target === dom.cart) closeCart();
+  });
+  dom.sheet.addEventListener('click', (event) => {
+    if (event.target === dom.sheet) closeSheet();
+  });
+  dom.review.addEventListener('click', (event) => {
+    if (event.target === dom.review) closeReview();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    // El modal de alérgenos y el lightbox de la carta original se cierran solos
+    // desde main.js; si están abiertos, esta capa no debe cerrar nada más.
+    if (document.querySelector('#allergenModal.is-open, #imageLightbox.is-open')) return;
+    if (dom.sheet.classList.contains('is-open')) closeSheet();
+    else if (dom.review.classList.contains('is-open')) closeReview();
+    else if (dom.cart.classList.contains('is-open')) closeCart();
+  });
+}
+
+/** Repinta solo las piezas de la carta inteligente, no la carta en sí. */
+export function refreshSmartPanels() {
+  if (!dom.reco) return;
+  renderContext();
+  renderRecommendations();
+  renderCombos();
+  renderCartBadge();
+}
+
+/** Repinta todo, incluida la carta (los avisos de alérgenos pueden cambiar). */
+function refreshAll() {
+  refreshSmartPanels();
+  host?.rerenderMenu();
+}
+
+/**
+ * main.js llama a esto cada vez que la carta se (re)construye.
+ * `sections` es el array `menuSections` ya poblado con grupos y productos.
+ */
+export function registerCatalog(sections) {
+  catalog.byId.clear();
+  catalog.byLegacyId.clear();
+  catalog.all = [];
+
+  sections.forEach((section) => {
+    (section.groups || []).forEach((group) => {
+      group.items.forEach((item) => {
+        const legacyId = item.legacyId || item.id;
+        const entry = {
+          item,
+          legacyId,
+          groupId: group.id,
+          groupName: group.category || '',
+          sectionId: section.id,
+          sectionName: section.category || '',
+          kind: getProductKind(legacyId, group.id)
+        };
+        catalog.byId.set(item.id, entry);
+        catalog.byLegacyId.set(legacyId, entry);
+        catalog.all.push(entry);
+      });
+    });
+  });
+
+  // Las líneas guardadas de una sesión anterior pueden apuntar a productos que
+  // ya no existen en la carta.
+  const before = cart.length;
+  cart = cart.filter((line) => catalog.byId.has(line.productId));
+  if (cart.length !== before) persistCart();
+}
+
+/**
+ * Punto de entrada llamado desde main.js con el catálogo ya registrado y antes
+ * de pintar la carta, para que los avisos de alérgenos salgan bien a la primera.
+ */
+export function initSmartMenu(bridge) {
+  host = bridge;
+  buildShell();
+  refreshSmartPanels();
+
+  if (!table.configured) openOnboarding();
+}
+
+export { openCart, openOnboarding };

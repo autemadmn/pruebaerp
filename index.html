@@ -9,6 +9,7 @@
   <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
   <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"></noscript>
   <link rel="stylesheet" href="/style.css?v=20260722-supabase">
+  <link rel="stylesheet" href="/smart.css?v=20260726-prototipo">
 </head>
 <body>
   <main class="menu-shell">
@@ -33,6 +34,12 @@
       </div>
     </section>
 
+    <div class="smart-context" id="smartContext" aria-label="Preferencias de vuestra mesa"></div>
+
+    <section class="smart-reco" id="smartReco" aria-label="Recomendaciones para vuestra mesa" aria-roledescription="carrusel"></section>
+
+    <section class="smart-combos" id="smartCombos" aria-label="Combinaciones populares"></section>
+
     <nav class="category-tabs top-tabs" id="topTabs" aria-label="Categorías de la carta"></nav>
 
     <section class="menu-layout" aria-label="Carta interactiva">
@@ -56,6 +63,17 @@
   </main>
 
   <nav class="category-tabs bottom-tabs" id="bottomTabs" aria-label="Cambiar sección de la carta"></nav>
+
+  <button class="smart-cart-fab" id="smartCartFab" type="button" aria-label="Ver el pedido">
+    <span aria-hidden="true">🧺</span>
+    <span>Mi pedido</span>
+    <span class="smart-cart-count" id="smartCartCount">0</span>
+  </button>
+
+  <div class="smart-onboarding" id="smartOnboarding" aria-label="Personalizar la carta"></div>
+  <div class="smart-sheet" id="smartSheet" aria-label="Ficha de producto"></div>
+  <div class="smart-cart" id="smartCart" aria-label="Vuestro pedido"></div>
+  <div class="smart-review" id="smartReview" aria-label="Revisión del pedido"></div>
 
   <div class="image-lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Imagen ampliada">
     <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="Cerrar imagen ampliada">×</button>

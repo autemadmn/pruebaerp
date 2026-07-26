@@ -20,7 +20,10 @@ try {
 const supabaseUrl = process.env.VITE_SUPABASE_URL || localEnv.VITE_SUPABASE_URL
 const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || localEnv.VITE_SUPABASE_ANON_KEY
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Faltan VITE_SUPABASE_URL o VITE_SUPABASE_ANON_KEY para crear la instantánea.')
+  // El prototipo se construye sin credenciales: se conserva la instantánea que
+  // ya está commiteada en src/menu-snapshot.js.
+  console.warn('Sin VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY: se mantiene la instantánea existente.')
+  process.exit(0)
 }
 
 const select = `

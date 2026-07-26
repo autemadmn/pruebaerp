@@ -12,6 +12,9 @@ build/
 .env.*
 !.env.example
 
+# Configuración local de herramientas.
+.claude/
+
 # Local system files.
 .DS_Store
 Thumbs.db
