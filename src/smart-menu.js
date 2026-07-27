@@ -18,6 +18,7 @@ import {
   pairingsByProduct,
   popularCombos
 } from './smart-data.js';
+import { currentStageId, initGuidedTour, refreshTour, startGuidedTour } from './guided-tour.js';
 
 const TABLE_STORAGE_KEY = 'tavolaSmartTable';
 const CART_STORAGE_KEY = 'tavolaSmartCart';
@@ -343,12 +344,68 @@ function addToCart(item, selection, quantity = 1) {
       unitPrice: unitPrice(item, selection),
       options: { ...(selection.options || {}) },
       extras: [...(selection.extras || [])],
-      note: selection.note || ''
+      note: selection.note || '',
+      // Fase del recorrido en la que se añadió: sirve para agrupar la revisión
+      // y para marcar las bebidas como ya enviadas a barra.
+      stage: currentStageId() || stageForEntry(entry)
     });
   }
 
   persistCart();
   renderCartBadge({ bump: true });
+  renderCart();
+  refreshTour();
+}
+
+// Cuando se pide fuera del recorrido, la fase se deduce de la familia.
+function stageForEntry(entry) {
+  if (!entry) return 'otros';
+  if (entry.kind === 'bebida' || entry.kind === 'dulce') return 'bebidas';
+  if (entry.kind === 'principal') return 'principales';
+  if (entry.kind === 'entrante' || entry.kind === 'acompanamiento') return 'entrantes';
+  return 'otros';
+}
+
+function defaultSelectionFor(entry) {
+  const config = getProductOptions(entry.legacyId, entry.groupId);
+  const selection = { groupId: entry.groupId, options: {}, extras: [], note: '' };
+  config.variants.forEach((variant) => {
+    selection.options[variant.id] = variant.options[0].id;
+  });
+  return selection;
+}
+
+function quantityOfProduct(productId) {
+  return cart.reduce((total, line) => (line.productId === productId ? total + line.quantity : total), 0);
+}
+
+/** Fija la cantidad de la versión por defecto de un producto (usado por el recorrido). */
+function setDefaultQuantity(entry, quantity) {
+  const selection = defaultSelectionFor(entry);
+  const key = lineKey(entry.item.id, selection);
+  const line = cart.find((entryLine) => entryLine.key === key);
+
+  if (quantity <= 0) {
+    cart = cart.filter((entryLine) => entryLine.key !== key);
+  } else if (line) {
+    line.quantity = quantity;
+  } else {
+    cart.push({
+      key,
+      productId: entry.item.id,
+      legacyId: entry.legacyId,
+      groupId: entry.groupId,
+      quantity,
+      unitPrice: unitPrice(entry.item, selection),
+      options: { ...selection.options },
+      extras: [],
+      note: '',
+      stage: currentStageId() || stageForEntry(entry)
+    });
+  }
+
+  persistCart();
+  renderCartBadge({ bump: quantity > 0 });
   renderCart();
 }
 
@@ -360,6 +417,7 @@ function updateQuantity(key, delta) {
   persistCart();
   renderCartBadge();
   renderCart();
+  refreshTour();
 }
 
 function removeLine(key) {
@@ -367,6 +425,7 @@ function removeLine(key) {
   persistCart();
   renderCartBadge();
   renderCart();
+  refreshTour();
 }
 
 function clearCart() {
@@ -374,6 +433,7 @@ function clearCart() {
   persistCart();
   renderCartBadge();
   renderCart();
+  refreshTour();
 }
 
 function cartHasProduct(productId) {
@@ -576,6 +636,8 @@ function finishOnboarding() {
   persistTable();
   closeOnboarding();
   refreshAll();
+  // Al terminar las preguntas arranca el recorrido guiado.
+  startGuidedTour();
 }
 
 // Tres tramos, uno por pregunta. El paso de selección de alérgenos comparte
@@ -1924,6 +1986,67 @@ export function registerCatalog(sections) {
   if (cart.length !== before) persistCart();
 }
 
+// Todo lo que el recorrido guiado necesita, sin duplicar estado.
+function buildTourContext() {
+  return {
+    catalogEntries: () => catalog.all,
+    entryById: (productId) => catalog.byId.get(productId) || null,
+    table: () => table,
+    peopleCount,
+    preferenceTags: selectedTags,
+    preferenceLabel: (tag) =>
+      (PREFERENCES.find((option) => option.tags.includes(tag))?.label || tag).toLowerCase(),
+    productMeta: getProductMeta,
+    basePrice,
+    title: itemTitle,
+    description: itemDescription,
+    image: imageFor,
+    priceLabel: (item) => host.getItemPrice(item),
+    formatPrice,
+    allergenSeverity: getAllergenSeverity,
+    matchedAllergens: matchedAllergenLabels,
+    allergenLabels: () =>
+      table.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label).filter(Boolean),
+    openAllergens: (item) => host.openAllergenModal(item, document.activeElement),
+    openSheet: openProductSheet,
+    quantityOf: quantityOfProduct,
+    setQuantity: setDefaultQuantity,
+    cartLines: () => cart,
+    cartTotal,
+    describeLine: (item, line) => describeSelection(item, { ...line, groupId: line.groupId }),
+    changeLine: (key, delta) => updateQuantity(key, delta),
+    removeLine,
+    clearCart,
+    markSent: (productIds) => {
+      const ids = new Set(productIds);
+      cart.forEach((line) => {
+        if (ids.has(line.productId)) {
+          line.sent = true;
+          line.stage = 'bebidas';
+        }
+      });
+      persistCart();
+    },
+    restart: () => openOnboarding(),
+    onStart: () => {
+      // Durante el recorrido, la carta normal y sus pestañas se apartan para no
+      // distraer. El enlace para verla entera sigue en la cabecera del paso.
+      document.querySelector('.menu-layout')?.classList.add('is-tour-hidden');
+      document.querySelector('#topTabs')?.classList.add('is-tour-hidden');
+      document.querySelector('#bottomTabs')?.classList.add('is-tour-hidden');
+      dom.reco?.classList.add('is-tour-hidden');
+    },
+    onExit: () => {
+      document.querySelector('.menu-layout')?.classList.remove('is-tour-hidden');
+      document.querySelector('#topTabs')?.classList.remove('is-tour-hidden');
+      document.querySelector('#bottomTabs')?.classList.remove('is-tour-hidden');
+      dom.reco?.classList.remove('is-tour-hidden');
+      refreshSmartPanels();
+      host?.rerenderMenu();
+    }
+  };
+}
+
 /**
  * Punto de entrada llamado desde main.js con el catálogo ya registrado y antes
  * de pintar la carta, para que los avisos de alérgenos salgan bien a la primera.
@@ -1931,6 +2054,7 @@ export function registerCatalog(sections) {
 export function initSmartMenu(bridge) {
   host = bridge;
   buildShell();
+  initGuidedTour(buildTourContext());
   refreshSmartPanels();
 
   if (!table.configured) openOnboarding();

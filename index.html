@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/style.css?v=20260722-supabase">
   <!-- Subir esta versión cada vez que cambie smart.css: el archivo vive en
        public/ y no lleva hash, así que si no se toca queda cacheado. -->
-  <link rel="stylesheet" href="/smart.css?v=20260727-fundido">
+  <link rel="stylesheet" href="/smart.css?v=20260727-recorrido">
 </head>
 <body>
   <main class="menu-shell">
@@ -41,6 +41,10 @@
     <section class="smart-reco" id="smartReco" aria-label="Recomendaciones para vuestra mesa" aria-roledescription="carrusel"></section>
 
     <nav class="category-tabs top-tabs" id="topTabs" aria-label="Categorías de la carta"></nav>
+
+    <!-- Recorrido de pedido guiado. Cuando está activo ocupa el lugar de la
+         carta; al salir, la carta vuelve tal cual estaba. -->
+    <section class="tour-stage is-hidden" id="tourStage" aria-label="Recorrido de pedido"></section>
 
     <section class="menu-layout" aria-label="Carta interactiva">
       <aside class="menu-list" id="menuList" aria-label="Productos de la categoría seleccionada"></aside>
