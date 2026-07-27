@@ -880,6 +880,7 @@ const RECO_COLLAPSED_KEY = 'tavolaSmartRecoCollapsed';
 let carouselIndex = 0;
 let carouselTimer = null;
 let carouselSlides = [];
+let carouselTitles = [];
 let recoCollapsed = readStorage(RECO_COLLAPSED_KEY, false) === true;
 
 function stopCarousel() {
@@ -897,9 +898,13 @@ function goToSlide(index) {
   if (!carouselSlides.length) return;
   carouselIndex = (index + carouselSlides.length) % carouselSlides.length;
   dom.recoTrack.style.transform = `translateX(-${carouselIndex * 100}%)`;
-  dom.recoSteps?.querySelectorAll('span').forEach((step, position) => {
-    step.classList.toggle('is-active', position === carouselIndex);
+  // Cada diapositiva lleva su propio indicador, junto al precio.
+  dom.reco.querySelectorAll('.smart-reco-steps').forEach((group) => {
+    group.querySelectorAll('span').forEach((step, position) => {
+      step.classList.toggle('is-active', position === carouselIndex);
+    });
   });
+  if (dom.recoMini) dom.recoMini.textContent = carouselTitles[carouselIndex] || '';
   carouselSlides.forEach((slide, position) => {
     const active = position === carouselIndex;
     slide.setAttribute('aria-hidden', String(!active));
@@ -951,6 +956,8 @@ function renderRecommendations() {
   carouselSlides = [];
   carouselIndex = 0;
 
+  carouselTitles = [];
+
   const picks = buildInitialRecommendations();
   if (!picks.length) {
     dom.reco.classList.add('smart-hidden');
@@ -958,9 +965,8 @@ function renderRecommendations() {
   }
   dom.reco.classList.remove('smart-hidden');
 
-  const head = el('div', 'smart-reco-head');
-  head.append(el('h2', null, 'Os recomendamos'));
-
+  // Sin recuadro ni titular: el motivo que va sobre el nombre ya explica por
+  // qué está ahí. Los controles viven dentro de la propia tarjeta blanca.
   const tools = el('div', 'smart-reco-tools');
   tools.append(
     button('smart-reco-tune', 'Ajustar', () => openOnboarding({ fromStart: false }))
@@ -971,7 +977,6 @@ function renderRecommendations() {
     applyRecoCollapsed();
   });
   tools.append(toggle);
-  head.append(tools);
 
   const viewport = el('div', 'smart-reco-viewport');
   const track = el('div', 'smart-reco-track');
@@ -988,13 +993,21 @@ function renderRecommendations() {
     image.loading = 'lazy';
     image.decoding = 'async';
 
+    // El motivo va sobre la foto, en la esquina, para no robar ancho al nombre.
+    card.append(el('span', 'smart-reco-reason', pick.reason));
+
     const copy = el('div', 'smart-reco-copy');
-    copy.append(el('span', 'smart-reco-reason', pick.reason));
     copy.append(el('h3', null, itemTitle(pick.entry.item)));
     const description = itemDescription(pick.entry.item);
     if (description) copy.append(el('p', null, description));
 
+    // El indicador de deslizamiento va a la izquierda del precio, en la misma
+    // línea, para no gastar una fila entera debajo.
     const meta = el('div', 'smart-reco-meta');
+    const steps = el('div', 'smart-reco-steps');
+    steps.setAttribute('aria-hidden', 'true');
+    picks.forEach(() => steps.append(el('span')));
+    meta.append(steps);
     meta.append(el('span', 'smart-reco-price', host.getItemPrice(pick.entry.item)));
     const flag = createSeverityFlag(getAllergenSeverity(pick.entry.item));
     if (flag) meta.append(flag);
@@ -1005,17 +1018,15 @@ function renderRecommendations() {
     slide.append(card);
     track.append(slide);
     carouselSlides.push(slide);
+    carouselTitles.push(itemTitle(pick.entry.item));
   });
 
-  // Indicador de posición dentro de la propia tarjeta: sugiere que se puede
-  // deslizar, sin flechas ni controles que roben espacio.
-  const steps = el('div', 'smart-reco-steps');
-  steps.setAttribute('aria-hidden', 'true');
-  picks.forEach(() => steps.append(el('span')));
-  dom.recoSteps = steps;
+  // Barra fina que queda cuando se pliega, para saber qué hay escondido.
+  const mini = el('div', 'smart-reco-mini');
+  dom.recoMini = mini;
 
-  viewport.append(track, steps);
-  dom.reco.append(head, viewport);
+  viewport.append(track);
+  dom.reco.append(viewport, mini, tools);
 
   // Arrastre horizontal para pasar de una recomendación a otra.
   let dragStart = null;
