@@ -219,6 +219,23 @@ const severityCopy = {
   warn: { label: 'Trazas', icon: '⚠️' }
 };
 
+// Línea de alérgenos escrita, con los que coinciden con la mesa destacados.
+function allergenLine(label, labels, variant) {
+  const line = el('div', `smart-allergen-line ${variant}`);
+  line.append(el('span', 'smart-allergen-label', label));
+  const list = el('span', 'smart-allergen-values');
+  labels.forEach((name) => {
+    const chip = el('span', 'smart-allergen-chip', name);
+    if (isSelectedAllergenLabel(name)) {
+      chip.classList.add('is-match');
+      chip.textContent = `⛔ ${name}`;
+    }
+    list.append(chip);
+  });
+  line.append(list);
+  return line;
+}
+
 function createSeverityFlag(severity, className = 'smart-item-flag') {
   const copy = severityCopy[severity];
   if (!copy) return null;
@@ -820,7 +837,10 @@ function renderOnboarding() {
 // Barra de contexto de la mesa
 // ---------------------------------------------------------------------------
 
+// Las preferencias ya no se pintan como barra de filtros sobre la carta: se
+// intuyen en el motivo de cada recomendación y se editan desde el carrusel.
 function renderContext() {
+  if (!dom.context) return;
   dom.context.textContent = '';
   if (!table.configured) return;
 
@@ -855,9 +875,12 @@ function renderContext() {
 // Carrusel de recomendaciones
 // ---------------------------------------------------------------------------
 
+const RECO_COLLAPSED_KEY = 'tavolaSmartRecoCollapsed';
+
 let carouselIndex = 0;
 let carouselTimer = null;
 let carouselSlides = [];
+let recoCollapsed = readStorage(RECO_COLLAPSED_KEY, false) === true;
 
 function stopCarousel() {
   window.clearInterval(carouselTimer);
@@ -874,14 +897,52 @@ function goToSlide(index) {
   if (!carouselSlides.length) return;
   carouselIndex = (index + carouselSlides.length) % carouselSlides.length;
   dom.recoTrack.style.transform = `translateX(-${carouselIndex * 100}%)`;
-  dom.recoDots.querySelectorAll('button').forEach((dot, position) => {
-    dot.classList.toggle('is-active', position === carouselIndex);
-    dot.setAttribute('aria-current', String(position === carouselIndex));
+  dom.recoSteps?.querySelectorAll('span').forEach((step, position) => {
+    step.classList.toggle('is-active', position === carouselIndex);
   });
   carouselSlides.forEach((slide, position) => {
-    slide.setAttribute('aria-hidden', String(position !== carouselIndex));
-    slide.querySelector('button')?.setAttribute('tabindex', position === carouselIndex ? '0' : '-1');
+    const active = position === carouselIndex;
+    slide.setAttribute('aria-hidden', String(!active));
+    slide.querySelector('button')?.setAttribute('tabindex', active ? '0' : '-1');
   });
+}
+
+// Dos flechas diagonales apuntándose entre sí para plegar; hacia fuera para
+// desplegar. El carrusel nunca se cierra del todo: solo se minimiza.
+function collapseIcon(collapsed) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '2');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+
+  const paths = collapsed
+    ? ['M15 3h6v6', 'M9 21H3v-6', 'M21 3l-7 7', 'M3 21l7-7']
+    : ['M4 14h6v6', 'M20 10h-6V4', 'M14 10l7-7', 'M3 21l7-7'];
+
+  paths.forEach((spec) => {
+    const path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', spec);
+    svg.append(path);
+  });
+  return svg;
+}
+
+function applyRecoCollapsed() {
+  dom.reco.classList.toggle('is-collapsed', recoCollapsed);
+  const toggle = dom.reco.querySelector('.smart-reco-toggle');
+  if (toggle) {
+    toggle.textContent = '';
+    toggle.append(collapseIcon(recoCollapsed));
+    toggle.setAttribute('aria-expanded', String(!recoCollapsed));
+    toggle.setAttribute('aria-label', recoCollapsed ? 'Desplegar recomendaciones' : 'Plegar recomendaciones');
+  }
+  if (recoCollapsed) stopCarousel();
+  else startCarousel();
 }
 
 function renderRecommendations() {
@@ -898,12 +959,19 @@ function renderRecommendations() {
   dom.reco.classList.remove('smart-hidden');
 
   const head = el('div', 'smart-reco-head');
-  const headText = el('div');
-  headText.append(
-    el('p', null, table.preferences.length ? 'Elegido para vuestra mesa' : 'Lo que más gusta'),
-    el('h2', null, table.preferences.length ? 'Os recomendamos' : 'Favoritos de la casa')
+  head.append(el('h2', null, 'Os recomendamos'));
+
+  const tools = el('div', 'smart-reco-tools');
+  tools.append(
+    button('smart-reco-tune', 'Ajustar', () => openOnboarding({ fromStart: false }))
   );
-  head.append(headText);
+  const toggle = button('smart-reco-toggle', null, () => {
+    recoCollapsed = !recoCollapsed;
+    writeStorage(RECO_COLLAPSED_KEY, recoCollapsed);
+    applyRecoCollapsed();
+  });
+  tools.append(toggle);
+  head.append(tools);
 
   const viewport = el('div', 'smart-reco-viewport');
   const track = el('div', 'smart-reco-track');
@@ -939,35 +1007,17 @@ function renderRecommendations() {
     carouselSlides.push(slide);
   });
 
-  viewport.append(track);
+  // Indicador de posición dentro de la propia tarjeta: sugiere que se puede
+  // deslizar, sin flechas ni controles que roben espacio.
+  const steps = el('div', 'smart-reco-steps');
+  steps.setAttribute('aria-hidden', 'true');
+  picks.forEach(() => steps.append(el('span')));
+  dom.recoSteps = steps;
 
-  const controls = el('div', 'smart-reco-controls');
-  const prev = button('smart-reco-arrow', '‹', () => {
-    goToSlide(carouselIndex - 1);
-    startCarousel();
-  });
-  prev.setAttribute('aria-label', 'Recomendación anterior');
-  const next = button('smart-reco-arrow', '›', () => {
-    goToSlide(carouselIndex + 1);
-    startCarousel();
-  });
-  next.setAttribute('aria-label', 'Siguiente recomendación');
+  viewport.append(track, steps);
+  dom.reco.append(head, viewport);
 
-  const dots = el('div', 'smart-reco-dots');
-  dom.recoDots = dots;
-  picks.forEach((pick, index) => {
-    const dot = button('', '', () => {
-      goToSlide(index);
-      startCarousel();
-    });
-    dot.setAttribute('aria-label', `Ver recomendación ${index + 1}`);
-    dots.append(dot);
-  });
-
-  controls.append(prev, dots, next);
-  dom.reco.append(head, viewport, controls);
-
-  // Arrastre horizontal para móvil.
+  // Arrastre horizontal para pasar de una recomendación a otra.
   let dragStart = null;
   viewport.addEventListener('pointerdown', (event) => {
     dragStart = event.clientX;
@@ -986,7 +1036,7 @@ function renderRecommendations() {
   });
 
   goToSlide(0);
-  startCarousel();
+  applyRecoCollapsed();
 }
 
 // ---------------------------------------------------------------------------
@@ -997,19 +1047,26 @@ function comboEntries(combo) {
   return combo.items.map(entryByLegacyId).filter(Boolean);
 }
 
-function renderCombos() {
-  dom.combos.textContent = '';
+/**
+ * Las combinaciones populares son ahora una pestaña más de la carta: main.js
+ * pide este bloque cuando la sección activa es «Lo más pedido junto».
+ */
+export function renderCombosSection() {
+  const wrapper = el('div', 'smart-combos-section');
   const usable = popularCombos.filter((combo) => comboEntries(combo).length >= 2);
-  if (!usable.length) {
-    dom.combos.classList.add('smart-hidden');
-    return;
-  }
-  dom.combos.classList.remove('smart-hidden');
 
-  const head = el('div', 'smart-reco-head');
-  const headText = el('div');
-  headText.append(el('p', null, 'Lo que más se pide junto'), el('h2', null, 'Combinaciones populares'));
-  head.append(headText);
+  if (!usable.length) {
+    wrapper.append(el('p', 'smart-combos-empty', 'Todavía no hay combinaciones cargadas.'));
+    return wrapper;
+  }
+
+  wrapper.append(
+    el(
+      'p',
+      'smart-combos-lead',
+      'No son menús cerrados ni ofertas: son los pedidos que más se repiten. Ábrelos, quita lo que no os apetezca y añadid el resto.'
+    )
+  );
 
   const grid = el('div', 'smart-combos-grid');
   usable.forEach((combo) => {
@@ -1035,7 +1092,8 @@ function renderCombos() {
     grid.append(card);
   });
 
-  dom.combos.append(head, grid);
+  wrapper.append(grid);
+  return wrapper;
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,18 +1200,42 @@ export function openProductSheet(item, groupId) {
       if (banner) allergenSection.append(banner);
     }
 
-    const allergenButton = button('smart-btn is-ghost', 'Ver alérgenos completos', () =>
-      host.openAllergenModal(item, allergenButton)
-    );
-    if (severity === 'alert') allergenButton.classList.add('is-danger');
-    allergenSection.append(allergenButton);
+    // Escritos y a la vista: nada de esconderlos detrás de otro botón.
+    const entries = info?.entries || [
+      { name: info?.title || itemTitle(item), contains: info?.contains || [], traces: info?.traces || [] }
+    ];
+    let anyListed = false;
 
-    if (info?.note) allergenSection.append(el('p', 'smart-allergen-note', info.note));
-    if (!info) {
+    entries.forEach((entry) => {
+      const block = el('div', 'smart-allergen-block');
+      if (entries.length > 1) block.append(el('h4', null, entry.name));
+
+      const contains = entry.contains || [];
+      const traces = entry.traces || [];
+      if (contains.length) anyListed = true;
+      if (traces.length) anyListed = true;
+
+      if (contains.length) block.append(allergenLine('Contiene', contains, 'is-contains'));
+      if (traces.length) block.append(allergenLine('Puede contener trazas de', traces, 'is-traces'));
+      if (!contains.length && !traces.length && entries.length > 1) {
+        block.append(el('p', 'smart-allergen-note', 'Sin alérgenos de declaración obligatoria.'));
+      }
+      allergenSection.append(block);
+    });
+
+    if (!anyListed && entries.length === 1) {
       allergenSection.append(
-        el('p', 'smart-allergen-note', 'Consulta al personal para conocer los alérgenos de este producto.')
+        el(
+          'p',
+          'smart-allergen-note',
+          info
+            ? 'Sin alérgenos de declaración obligatoria.'
+            : 'No tenemos la ficha cargada para este producto. Consulta al personal.'
+        )
       );
     }
+
+    if (info?.note) allergenSection.append(el('p', 'smart-allergen-note', info.note));
     body.append(allergenSection);
 
     // Variantes y extras ---------------------------------------------------
@@ -1430,13 +1512,18 @@ function openComboSheet(combo) {
 function renderCartBadge({ bump = false } = {}) {
   const count = cartCount();
   dom.cartCount.textContent = String(count);
-  dom.cartFab.setAttribute('aria-label', `Ver el pedido, ${count} ${count === 1 ? 'producto' : 'productos'}`);
-  dom.cartFab.classList.toggle('smart-hidden', false);
+  dom.cartFab.classList.toggle('is-empty', count === 0);
+  dom.cartFab.setAttribute(
+    'aria-label',
+    count === 0 ? 'Ver el pedido, vacío' : `Ver el pedido, ${count} ${count === 1 ? 'producto' : 'productos'}`
+  );
 
+  // Al añadir algo el número entra en grande y en blanco y se encoge hasta
+  // quedarse dentro del dibujo del carrito.
   if (bump) {
-    dom.cartFab.classList.remove('is-bumped');
-    void dom.cartFab.offsetWidth;
-    dom.cartFab.classList.add('is-bumped');
+    dom.cartCount.classList.remove('is-popping');
+    void dom.cartCount.offsetWidth;
+    dom.cartCount.classList.add('is-popping');
   }
 }
 
@@ -1722,7 +1809,6 @@ function renderSuccess() {
 function buildShell() {
   dom.context = document.querySelector('#smartContext');
   dom.reco = document.querySelector('#smartReco');
-  dom.combos = document.querySelector('#smartCombos');
   dom.onboarding = document.querySelector('#smartOnboarding');
   dom.sheet = document.querySelector('#smartSheet');
   dom.cart = document.querySelector('#smartCart');
@@ -1782,7 +1868,6 @@ export function refreshSmartPanels() {
   if (!dom.reco) return;
   renderContext();
   renderRecommendations();
-  renderCombos();
   renderCartBadge();
 }
 

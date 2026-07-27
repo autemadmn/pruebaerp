@@ -8,7 +8,8 @@ import {
   isSelectedAllergenLabel,
   openProductSheet,
   refreshSmartPanels,
-  registerCatalog
+  registerCatalog,
+  renderCombosSection
 } from './smart-menu.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -20,7 +21,6 @@ let foodGroups = [];
 let beverageGroups = [];
 let granizadosSmoothiesGroups = [];
 let cocktailGroups = [];
-let sangriaGroups = [];
 let activeRestaurant = null;
 let menuChannel = null;
 let realtimeReconnectTimer = null;
@@ -93,7 +93,9 @@ const categoryLayout = {
   },
   "10000000-0000-4000-8000-000000000011": {
     "id": "sangrias-carta",
-    "target": "sangriaGroups"
+    // Las sangrías van dentro de Bebidas para dejar sitio en la barra de
+    // pestañas a las combinaciones populares.
+    "target": "beverageGroups"
   },
   "10000000-0000-4000-8000-000000000012": {
     "id": "desayuno",
@@ -366,14 +368,12 @@ function applyMenuData(menu) {
   beverageGroups = [];
   granizadosSmoothiesGroups = [];
   cocktailGroups = [];
-  sangriaGroups = [];
 
   const targets = {
     foodGroups,
     beverageGroups,
     granizadosSmoothiesGroups,
-    cocktailGroups,
-    sangriaGroups
+    cocktailGroups
   };
 
   menu.categories.forEach((category) => {
@@ -394,7 +394,6 @@ function applyMenuData(menu) {
     bebidas: beverageGroups,
     cocteles: cocktailGroups,
     'granizados-smoothies': granizadosSmoothiesGroups,
-    sangrias: sangriaGroups,
     comidas: foodGroups
   };
   menuSections.forEach((section) => {
@@ -415,12 +414,10 @@ function renderLoadingSkeleton() {
       <span class="menu-skeleton"></span>
       <span class="menu-skeleton"></span>
     </div>`;
-  dishPreview.classList.add('is-loading');
 }
 
 function renderMenuError() {
   const ui = getUiCopy();
-  dishPreview.classList.add('is-hidden');
   menuList.textContent = '';
   const errorBox = document.createElement('div');
   const title = document.createElement('h2');
@@ -444,7 +441,6 @@ async function refreshMenu({ showLoading = false } = {}) {
     initialMenuRequest = null;
     const menu = await request;
     applyMenuData(menu);
-    dishPreview.classList.remove('is-loading');
     renderTabs();
     renderActiveSection();
     updateActiveTabs();
@@ -512,7 +508,6 @@ async function initializeMenu() {
     // La carta inteligente se monta con el catálogo ya cargado y antes del
     // primer pintado, para que los avisos de alérgenos salgan a la primera.
     initSmartMenu(smartBridge);
-    dishPreview.classList.remove('is-loading');
     renderTabs();
     renderActiveSection();
     updateActiveTabs();
@@ -643,16 +638,16 @@ const menuSections = [
     groups: granizadosSmoothiesGroups
   },
   {
-    id: "sangrias",
-    category: "Sangrías",
-    shortLabel: "Sangrías",
-    groups: sangriaGroups
-  },
-  {
     id: "comidas",
     category: "Comida",
     shortLabel: "Comida",
     groups: foodGroups
+  },
+  {
+    id: "combinaciones",
+    category: "Lo más pedido junto",
+    shortLabel: "Lo más pedido junto",
+    groups: []
   },
   {
     id: "tarifas-hamacas",
@@ -711,13 +706,13 @@ const translations = {
         "category": "Smoothies y Frappés",
         "shortLabel": "Smoothies y Frappés"
       },
-      "sangrias": {
-        "category": "Sangrías",
-        "shortLabel": "Sangrías"
-      },
       "comidas": {
         "category": "Comida",
         "shortLabel": "Comida"
+      },
+      "combinaciones": {
+        "category": "Lo más pedido junto",
+        "shortLabel": "Lo más pedido junto"
       },
       "tarifas-hamacas": {
         "category": "Zona Beach Club",
@@ -844,13 +839,13 @@ const translations = {
         "category": "Smoothies & Frappés",
         "shortLabel": "Smoothies & Frappés"
       },
-      "sangrias": {
-        "category": "Sangrias",
-        "shortLabel": "Sangrias"
-      },
       "comidas": {
         "category": "Food",
         "shortLabel": "Food"
+      },
+      "combinaciones": {
+        "category": "Most ordered together",
+        "shortLabel": "Most ordered together"
       },
       "tarifas-hamacas": {
         "category": "Beach Club Zone",
@@ -977,13 +972,13 @@ const translations = {
         "category": "Smoothies & Frappés",
         "shortLabel": "Smoothies & Frappés"
       },
-      "sangrias": {
-        "category": "Sangrias",
-        "shortLabel": "Sangrias"
-      },
       "comidas": {
         "category": "Speisen",
         "shortLabel": "Speisen"
+      },
+      "combinaciones": {
+        "category": "Am liebsten zusammen",
+        "shortLabel": "Am liebsten zusammen"
       },
       "tarifas-hamacas": {
         "category": "Beach Club Bereich",
@@ -1093,23 +1088,6 @@ const languageSwitcher = document.querySelector("#languageSwitcher");
 const introCopy = document.querySelector("#introCopy");
 const menuLayout = document.querySelector(".menu-layout");
 const menuList = document.querySelector("#menuList");
-const dishPreview = document.querySelector("#dishPreview");
-const imageFrame = document.querySelector("#imageFrame");
-const dishImage = document.querySelector("#dishImage");
-const dishCategory = document.querySelector("#dishCategory");
-const dishTitle = document.querySelector("#dishTitle");
-const dishPrice = document.querySelector("#dishPrice");
-const dishDescription = document.querySelector("#dishDescription");
-const dishNote = document.querySelector("#dishNote");
-const photoDisclaimer = document.querySelector("#photoDisclaimer");
-const dishStatus = document.querySelector("#dishStatus");
-const dishSoldOut = document.createElement('span');
-dishSoldOut.className = 'sold-out-badge preview-sold-out';
-dishSoldOut.hidden = true;
-dishDescription.before(dishSoldOut);
-const imageLightbox = document.querySelector("#imageLightbox");
-const imageLightboxImg = document.querySelector("#imageLightboxImg");
-const imageLightboxClose = document.querySelector("#imageLightboxClose");
 const allergenModal = document.querySelector("#allergenModal");
 const allergenModalClose = document.querySelector("#allergenModalClose");
 const allergenTitle = document.querySelector("#allergenTitle");
@@ -1119,12 +1097,6 @@ let activeSectionId = "bebidas";
 let activeHamacaTurnId = "todo-dia";
 let currentLanguage = getSavedLanguage();
 let lastFocusedElement = null;
-let ignoreNextImageClick = false;
-let imageDragState = null;
-let activeDragReturn = null;
-let previewUpdateToken = 0;
-
-const imagePreloadCache = new Map();
 
 function getSavedLanguage() {
   try {
@@ -1217,14 +1189,15 @@ function scheduleScrollToMainPanel() {
   });
 }
 
-function scheduleScrollToGroupStart(groupBlock, panel) {
+function scheduleScrollToGroupStart(groupBlock) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      const previewOffset = isMobileLayout() && !dishPreview.classList.contains("is-hidden")
-        ? dishPreview.getBoundingClientRect().height + 14
-        : 18;
+      // El carrusel de recomendaciones queda fijo arriba: se deja su altura de
+      // margen para que la cabecera del grupo no se meta debajo.
+      const reco = document.querySelector("#smartReco");
+      const offset = (reco?.getBoundingClientRect().height || 0) + 14;
 
-      scrollElementNearTop(groupBlock, previewOffset);
+      scrollElementNearTop(groupBlock, offset);
     });
   });
 }
@@ -1305,6 +1278,30 @@ function createAllergenButton(item, itemText) {
   return button;
 }
 
+// Miniatura que aparece con un fundido cuando la imagen termina de cargar, en
+// lugar de la ficha lateral grande que ocupaba un tercio de la pantalla.
+function createDishThumb(item, itemText) {
+  const frame = document.createElement("span");
+  const image = document.createElement("img");
+
+  frame.className = "dish-thumb";
+  image.src = item.image;
+  image.alt = "";
+  image.loading = "lazy";
+  image.decoding = "async";
+  image.setAttribute("aria-hidden", "true");
+
+  if (image.complete && image.naturalWidth > 0) {
+    image.classList.add("is-loaded");
+  } else {
+    image.addEventListener("load", () => image.classList.add("is-loaded"), { once: true });
+    image.addEventListener("error", () => frame.classList.add("is-empty"), { once: true });
+  }
+
+  frame.append(image);
+  return frame;
+}
+
 function createDishButton(item, sectionName, groupId) {
   const card = document.createElement("article");
   const isInteractive = item.hasDetail !== false;
@@ -1314,7 +1311,6 @@ function createDishButton(item, sectionName, groupId) {
 
   card.className = "dish";
   card.dataset.dish = item.id;
-  card.classList.add("has-allergens");
   card.classList.toggle("is-static", !isInteractive);
   card.classList.toggle("is-sold-out", !item.isAvailable);
 
@@ -1322,9 +1318,7 @@ function createDishButton(item, sectionName, groupId) {
 
   if (isInteractive) {
     button.type = "button";
-    button.setAttribute("aria-controls", "dishPreview");
-    button.setAttribute("aria-pressed", "false");
-    button.setAttribute("aria-label", `${itemText.title}, ${sectionName}, ${itemPrice}`);
+    button.setAttribute("aria-label", `Ver ${itemText.title}, ${sectionName}, ${itemPrice}`);
   }
 
   const text = document.createElement("span");
@@ -1332,6 +1326,7 @@ function createDishButton(item, sectionName, groupId) {
   const description = document.createElement("small");
   const price = document.createElement("b");
 
+  text.className = "dish-copy";
   title.textContent = itemText.title;
   title.classList.add(nameSizeClasses[item.nameSize] || nameSizeClasses.normal);
   description.textContent = itemText.description;
@@ -1346,6 +1341,7 @@ function createDishButton(item, sectionName, groupId) {
     text.append(note);
   }
 
+  if (isInteractive) button.append(createDishThumb(item, itemText));
   button.append(text, price);
 
   if (!item.isAvailable) {
@@ -1355,33 +1351,39 @@ function createDishButton(item, sectionName, groupId) {
     button.append(soldOut);
   }
 
+  // Pulsar un producto nunca lo añade al pedido: primero se abre su ficha.
   if (isInteractive) {
-    // Pulsar un producto nunca lo añade al pedido: primero se abre su ficha.
-    button.addEventListener("click", () => {
-      showDish(item, sectionName);
-      openProductSheet(item, groupId);
-    });
+    button.addEventListener("click", () => openProductSheet(item, groupId));
   }
 
   card.append(button);
-  card.append(createAllergenButton(item, itemText));
+
+  const foot = document.createElement("div");
+  foot.className = "dish-foot";
+  foot.append(createAllergenButton(item, itemText));
+
+  if (isInteractive) {
+    // Señuelo: no añade nada por sí solo, abre la ficha para que el cliente
+    // descubra variantes, extras y observaciones antes de confirmar.
+    const add = document.createElement("button");
+    add.className = "dish-add";
+    add.type = "button";
+    add.textContent = "+ carrito";
+    add.setAttribute("aria-label", `Abrir ${itemText.title} para añadirlo al pedido`);
+    add.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openProductSheet(item, groupId);
+    });
+    foot.append(add);
+  }
+
+  card.append(foot);
 
   return card;
 }
 
 function getSectionItemCount(section) {
   return section.groups.reduce((total, group) => total + group.items.length, 0);
-}
-
-function getFirstSectionDish(section) {
-  const firstGroup = section.groups.find((group) => group.items.length > 0);
-
-  if (!firstGroup) return null;
-
-  return {
-    dish: firstGroup.items[0],
-    groupName: firstGroup.category
-  };
 }
 
 function createEmptySection(section) {
@@ -1695,11 +1697,6 @@ function toggleFoodGroup(groupBlock, panel, toggle, indicator, group) {
   indicator.textContent = shouldOpen ? "−" : "+";
 
   if (shouldOpen && group.items[0]) {
-    const groupText = getGroupText(group);
-
-    dishPreview.classList.remove("is-hidden");
-    menuLayout.classList.remove("is-empty-section");
-    showDish(group.items[0], groupText.category);
     scheduleScrollToGroupStart(groupBlock, panel);
   }
 }
@@ -1718,6 +1715,7 @@ function renderActiveSection() {
   menuList.textContent = "";
   menuLayout.classList.toggle("is-hamacas-section", section.id === "tarifas-hamacas");
   menuList.classList.toggle("is-hamacas-list", section.id === "tarifas-hamacas");
+  menuList.classList.toggle("is-combos-list", section.id === "combinaciones");
   sectionBlock.className = "menu-section active-section";
   heading.className = "section-heading";
   eyebrow.className = "section-eyebrow";
@@ -1732,10 +1730,6 @@ function renderActiveSection() {
   sectionBlock.append(heading);
 
   if (section.id === "tarifas-hamacas") {
-    resetImageDrag();
-    previewUpdateToken += 1;
-    dishPreview.classList.add("is-hidden");
-    menuLayout.classList.add("is-empty-section");
     sectionBlock.textContent = "";
     sectionBlock.classList.add("hamacas-active-section");
     sectionBlock.append(createHamacasSection());
@@ -1744,11 +1738,16 @@ function renderActiveSection() {
     return;
   }
 
+  // Las combinaciones populares son una pestaña más de la carta.
+  if (section.id === "combinaciones") {
+    count.textContent = "";
+    sectionBlock.append(renderCombosSection());
+    menuList.append(sectionBlock);
+    menuList.setAttribute("aria-labelledby", "activeCategoryTitle");
+    return;
+  }
+
   if (itemCount === 0) {
-    resetImageDrag();
-    previewUpdateToken += 1;
-    dishPreview.classList.add("is-hidden");
-    menuLayout.classList.add("is-empty-section");
     sectionBlock.append(createEmptySection(section));
     menuList.append(sectionBlock);
     menuList.setAttribute("aria-labelledby", "activeCategoryTitle");
@@ -1762,10 +1761,6 @@ function renderActiveSection() {
 
     menuList.append(sectionBlock);
     menuList.setAttribute("aria-labelledby", "activeCategoryTitle");
-    resetImageDrag();
-    previewUpdateToken += 1;
-    dishPreview.classList.add("is-hidden");
-    menuLayout.classList.add("is-empty-section");
     return;
   }
 
@@ -1777,15 +1772,6 @@ function renderActiveSection() {
 
   menuList.append(sectionBlock);
   menuList.setAttribute("aria-labelledby", "activeCategoryTitle");
-
-  const firstDish = getFirstSectionDish(section);
-
-  dishPreview.classList.remove("is-hidden");
-  menuLayout.classList.remove("is-empty-section");
-
-  if (firstDish) {
-    showDish(firstDish.dish, sectionText.category);
-  }
 }
 
 function updateActiveTabs() {
@@ -1808,7 +1794,6 @@ function setActiveSection(sectionId) {
 
 function updateStaticText() {
   const ui = getUiCopy();
-  dishSoldOut.textContent = ui.soldOut;
 
   document.documentElement.lang = currentLanguage;
   document.title = ui.documentTitle;
@@ -1818,9 +1803,6 @@ function updateStaticText() {
   bottomTabs.setAttribute("aria-label", ui.bottomTabsLabel);
   menuLayout.setAttribute("aria-label", ui.menuLayoutLabel);
   menuList.setAttribute("aria-label", ui.menuListLabel);
-  imageFrame.setAttribute("aria-label", ui.imageFrameLabel);
-  imageLightbox.setAttribute("aria-label", ui.lightboxLabel);
-  imageLightboxClose.setAttribute("aria-label", ui.closeLightboxLabel);
 
   languageSwitcher.querySelectorAll(".language-button").forEach((button) => {
     const isActive = button.dataset.lang === currentLanguage;
@@ -1847,94 +1829,6 @@ function setupLanguageSwitcher() {
   languageSwitcher.querySelectorAll(".language-button").forEach((button) => {
     button.setAttribute("aria-pressed", "false");
     button.addEventListener("click", () => setLanguage(button.dataset.lang));
-  });
-}
-
-function preloadImage(src) {
-  if (imagePreloadCache.has(src)) {
-    return imagePreloadCache.get(src);
-  }
-
-  const preload = new Promise((resolve, reject) => {
-    const image = new Image();
-
-    image.decoding = "async";
-
-    image.onload = () => {
-      if (typeof image.decode === "function") {
-        image.decode().catch(() => undefined).then(() => resolve(src));
-        return;
-      }
-
-      resolve(src);
-    };
-
-    image.onerror = reject;
-    image.src = src;
-  });
-
-  imagePreloadCache.set(src, preload);
-  preload.catch(() => imagePreloadCache.delete(src));
-  return preload;
-}
-
-async function showDish(selectedDish, sectionName) {
-  const updateToken = ++previewUpdateToken;
-  const itemText = getItemText(selectedDish);
-  const ui = getUiCopy();
-
-  resetImageDrag();
-  dishPreview.classList.add("is-changing");
-
-  document.querySelectorAll(".dish").forEach((card) => {
-    const isSelected = card.dataset.dish === selectedDish.id;
-    const selectButton = card.querySelector(".dish-select");
-
-    card.classList.toggle("is-active", isSelected);
-
-    if (selectButton?.tagName === "BUTTON") {
-      selectButton.setAttribute("aria-pressed", String(isSelected));
-    }
-  });
-
-  try {
-    await preloadImage(selectedDish.image);
-  } catch (error) {
-    console.warn("No se pudo cargar la imagen:", selectedDish.image);
-  }
-
-  if (updateToken !== previewUpdateToken) return;
-
-  dishImage.loading = "lazy";
-  dishImage.decoding = "async";
-  dishImage.src = selectedDish.image;
-  dishImage.alt = itemText.title;
-  dishImage.loading = 'lazy';
-  dishImage.width = 1200;
-  dishImage.height = 1200;
-  dishCategory.textContent = sectionName;
-  dishTitle.textContent = itemText.title;
-  dishTitle.classList.remove(...nameSizeClassList);
-  dishTitle.classList.add(nameSizeClasses[selectedDish.nameSize] || nameSizeClasses.normal);
-  dishPrice.textContent = getItemPrice(selectedDish);
-  dishDescription.textContent = itemText.description;
-  dishPreview.classList.toggle('is-sold-out', !selectedDish.isAvailable);
-  dishSoldOut.hidden = selectedDish.isAvailable;
-  photoDisclaimer.classList.toggle("is-hidden", !selectedDish.image);
-  dishStatus.textContent = `${ui.dishSelected}: ${itemText.title}.`;
-
-  if (itemText.note) {
-    dishNote.textContent = itemText.note;
-    dishNote.classList.remove("is-hidden");
-  } else {
-    dishNote.textContent = "";
-    dishNote.classList.add("is-hidden");
-  }
-
-  requestAnimationFrame(() => {
-    if (updateToken === previewUpdateToken) {
-      dishPreview.classList.remove("is-changing");
-    }
   });
 }
 
@@ -2047,286 +1941,6 @@ function closeAllergenModal() {
   }
 }
 
-function openImageLightbox() {
-  lastFocusedElement = document.activeElement;
-  imageLightboxImg.src = dishImage.currentSrc || dishImage.src;
-  imageLightboxImg.alt = dishImage.alt;
-  imageLightbox.classList.add("is-open");
-  imageLightbox.setAttribute("aria-hidden", "false");
-  document.body.classList.add("lightbox-open");
-  imageLightboxClose.focus({ preventScroll: true });
-}
-
-function closeImageLightbox() {
-  imageLightbox.classList.remove("is-open");
-  imageLightbox.setAttribute("aria-hidden", "true");
-  document.body.classList.remove("lightbox-open");
-
-  if (lastFocusedElement && typeof lastFocusedElement.focus === "function") {
-    lastFocusedElement.focus({ preventScroll: true });
-  }
-}
-
-function clamp(value, min, max) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function resetImageDrag() {
-  if (imageDragState?.preview) {
-    imageDragState.preview.remove();
-  }
-
-  clearActiveDragReturn();
-  imageFrame.classList.remove("is-drag-source", "is-liquid-settle");
-  imageDragState = null;
-}
-
-function clearActiveDragReturn({ settle = false } = {}) {
-  const runningReturn = activeDragReturn;
-
-  if (!runningReturn) return false;
-
-  if (runningReturn.animation) {
-    runningReturn.animation.cancel();
-  }
-
-  if (runningReturn.preview) {
-    runningReturn.preview.remove();
-  }
-
-  activeDragReturn = null;
-  imageFrame.classList.remove("is-drag-source");
-
-  if (settle) {
-    runImageFrameSettle();
-  }
-
-  return true;
-}
-
-function beginImageDrag(event) {
-  if (!event.isPrimary || imageLightbox.classList.contains("is-open")) return;
-
-  imageFrame.classList.remove("is-liquid-settle");
-
-  imageDragState = {
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    rect: imageFrame.getBoundingClientRect(),
-    preview: null,
-    isDragging: false,
-    scale: 1
-  };
-
-  imageFrame.setPointerCapture(event.pointerId);
-}
-
-function updateImageDrag(event) {
-  if (!imageDragState || imageDragState.pointerId !== event.pointerId) return;
-
-  const deltaX = event.clientX - imageDragState.startX;
-  const deltaY = event.clientY - imageDragState.startY;
-  const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-
-  if (distance < 3) return;
-
-  event.preventDefault();
-  imageDragState.isDragging = true;
-
-  if (!imageDragState.preview) {
-    imageDragState.preview = createImageDragPreview(imageDragState.rect);
-    imageFrame.classList.add("is-drag-source");
-  }
-
-  updateImageDragPreview(imageDragState, deltaX, deltaY, distance);
-}
-
-function finishImageDrag(event) {
-  if (!imageDragState || imageDragState.pointerId !== event.pointerId) return;
-
-  const wasDragging = imageDragState.isDragging;
-  const dragState = imageDragState;
-
-  if (imageFrame.hasPointerCapture(event.pointerId)) {
-    imageFrame.releasePointerCapture(event.pointerId);
-  }
-
-  imageDragState = null;
-
-  if (wasDragging) {
-    ignoreNextImageClick = true;
-    window.setTimeout(() => {
-      ignoreNextImageClick = false;
-    }, 450);
-    animateImageDragBack(dragState);
-  }
-}
-
-function handleImageFrameClick(event) {
-  if (ignoreNextImageClick || imageDragState || imageLightbox.classList.contains("is-open")) {
-    event.preventDefault();
-    return;
-  }
-
-  event.preventDefault();
-  openImageLightbox();
-}
-
-function cancelImageDrag(event) {
-  if (!imageDragState || imageDragState.pointerId !== event.pointerId) return;
-  resetImageDrag();
-}
-
-function createImageDragPreview(rect) {
-  const preview = document.createElement("img");
-
-  preview.className = "image-drag-preview";
-  preview.src = dishImage.currentSrc || dishImage.src;
-  preview.alt = dishImage.alt;
-  preview.decoding = "async";
-  preview.style.width = `${rect.width}px`;
-  preview.style.height = `${rect.height}px`;
-  preview.style.left = `${rect.left}px`;
-  preview.style.top = `${rect.top}px`;
-
-  document.body.append(preview);
-  return preview;
-}
-
-function updateImageDragPreview(state, deltaX, deltaY, distance) {
-  const rect = state.rect;
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  const threshold = viewportHeight * 0.55;
-  const progress = Math.min(distance / threshold, 1);
-  const eased = progress * progress * (3 - 2 * progress);
-  const finalRect = getImageDragFinalRect(rect, viewportWidth, viewportHeight);
-  const currentLeft = rect.left + (finalRect.left - rect.left) * eased;
-  const currentTop = rect.top + (finalRect.top - rect.top) * eased;
-  const currentWidth = rect.width + (finalRect.width - rect.width) * eased;
-  const currentHeight = rect.height + (finalRect.height - rect.height) * eased;
-
-  state.left = currentLeft;
-  state.top = currentTop;
-  state.width = currentWidth;
-  state.height = currentHeight;
-  state.progress = progress;
-  state.preview.style.left = `${currentLeft}px`;
-  state.preview.style.top = `${currentTop}px`;
-  state.preview.style.width = `${currentWidth}px`;
-  state.preview.style.height = `${currentHeight}px`;
-}
-
-function getImageDragFinalRect(rect, viewportWidth, viewportHeight) {
-  const maxWidth = viewportWidth * 0.9;
-  const maxHeight = viewportHeight * (viewportWidth <= 820 ? 0.72 : 0.76);
-  const ratio = rect.height / rect.width;
-  let width = Math.min(maxWidth, rect.width * (viewportWidth <= 820 ? 4.1 : 2.35));
-  let height = width * ratio;
-
-  if (height > maxHeight) {
-    height = maxHeight;
-    width = height / ratio;
-  }
-
-  const left = (viewportWidth - width) / 2;
-  const top = clamp((viewportHeight - height) / 2, 20, Math.max(20, viewportHeight - height - 20));
-
-  return { left, top, width, height };
-}
-
-function animateImageDragBack(state) {
-  const preview = state.preview;
-  const rect = state.rect;
-
-  if (!preview) {
-    imageFrame.classList.remove("is-drag-source");
-    return;
-  }
-
-  const fromLeft = state.left ?? rect.left;
-  const fromTop = state.top ?? rect.top;
-  const fromWidth = state.width ?? rect.width;
-  const fromHeight = state.height ?? rect.height;
-  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  if (reduceMotion || typeof preview.animate !== "function") {
-    imageFrame.classList.remove("is-drag-source");
-    window.setTimeout(() => preview.remove(), 180);
-    return;
-  }
-
-  imageFrame.classList.remove("is-drag-source");
-
-  const returnDuration = 400;
-  const returnAnimation = preview.animate(
-    [
-      {
-        left: `${fromLeft}px`,
-        top: `${fromTop}px`,
-        width: `${fromWidth}px`,
-        height: `${fromHeight}px`,
-        transform: "scale(1, 1)",
-        opacity: 1,
-        filter: "saturate(1)",
-        offset: 0
-      },
-      {
-        left: `${rect.left}px`,
-        top: `${rect.top}px`,
-        width: `${rect.width}px`,
-        height: `${rect.height}px`,
-        transform: "scale(1, 1)",
-        opacity: 1,
-        filter: "saturate(1)",
-        offset: 1
-      }
-    ],
-    {
-      duration: returnDuration,
-      easing: "cubic-bezier(0.25, 1, 0.5, 1)",
-      fill: "forwards"
-    }
-  );
-
-  activeDragReturn = { animation: returnAnimation, preview };
-
-  returnAnimation.onfinish = () => {
-    if (activeDragReturn?.preview !== preview) return;
-
-    activeDragReturn = null;
-    preview.remove();
-    runImageFrameSettle();
-  };
-
-  returnAnimation.oncancel = () => {
-    if (activeDragReturn?.preview === preview) {
-      activeDragReturn = null;
-    }
-  };
-}
-
-function runImageFrameSettle() {
-  imageFrame.classList.remove("is-liquid-settle");
-  void imageFrame.offsetWidth;
-  imageFrame.classList.add("is-liquid-settle");
-}
-
-imageFrame.addEventListener("animationend", (event) => {
-  if (event.animationName === "imageLiquidSettle") {
-    imageFrame.classList.remove("is-liquid-settle");
-  }
-});
-
-window.addEventListener(
-  "scroll",
-  () => {
-    clearActiveDragReturn({ settle: true });
-  },
-  { passive: true }
-);
-
 // Puente hacia la capa de carta inteligente: le damos acceso a los textos, los
 // precios y el modal de alérgenos que ya sabe pintar la carta original.
 const smartBridge = {
@@ -2341,27 +1955,6 @@ const smartBridge = {
 
 initializeMenu();
 
-imageFrame.addEventListener("pointerdown", beginImageDrag);
-imageFrame.addEventListener("pointermove", updateImageDrag);
-imageFrame.addEventListener("pointerup", finishImageDrag);
-imageFrame.addEventListener("pointercancel", cancelImageDrag);
-imageFrame.addEventListener("click", handleImageFrameClick);
-
-imageFrame.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" || event.key === " ") {
-    event.preventDefault();
-    openImageLightbox();
-  }
-});
-
-imageLightboxClose.addEventListener("click", closeImageLightbox);
-
-imageLightbox.addEventListener("click", (event) => {
-  if (event.target === imageLightbox) {
-    closeImageLightbox();
-  }
-});
-
 allergenModalClose.addEventListener("click", closeAllergenModal);
 
 allergenModal.addEventListener("click", (event) => {
@@ -2371,10 +1964,6 @@ allergenModal.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && imageLightbox.classList.contains("is-open")) {
-    closeImageLightbox();
-  }
-
   if (event.key === "Escape" && allergenModal.classList.contains("is-open")) {
     closeAllergenModal();
   }

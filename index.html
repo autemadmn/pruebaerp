@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/style.css?v=20260722-supabase">
   <!-- Subir esta versión cada vez que cambie smart.css: el archivo vive en
        public/ y no lleva hash, así que si no se toca queda cacheado. -->
-  <link rel="stylesheet" href="/smart.css?v=20260726-capas-movil">
+  <link rel="stylesheet" href="/smart.css?v=20260727-lista-compacta">
 </head>
 <body>
   <main class="menu-shell">
@@ -36,39 +36,28 @@
       </div>
     </section>
 
-    <div class="smart-context" id="smartContext" aria-label="Preferencias de vuestra mesa"></div>
-
+    <!-- Ocupa el sitio de la antigua ficha lateral: se queda fija arriba al
+         hacer scroll y solo se puede plegar, nunca cerrar. -->
     <section class="smart-reco" id="smartReco" aria-label="Recomendaciones para vuestra mesa" aria-roledescription="carrusel"></section>
-
-    <section class="smart-combos" id="smartCombos" aria-label="Combinaciones populares"></section>
 
     <nav class="category-tabs top-tabs" id="topTabs" aria-label="Categorías de la carta"></nav>
 
     <section class="menu-layout" aria-label="Carta interactiva">
       <aside class="menu-list" id="menuList" aria-label="Productos de la categoría seleccionada"></aside>
-
-      <article class="dish-preview" id="dishPreview" aria-live="polite" tabindex="-1">
-        <div class="image-frame menu-item-image" id="imageFrame" role="button" tabindex="0" aria-label="Ampliar imagen del plato">
-          <img id="dishImage" src="assets/comidas/genericas/pasta.webp" alt="" loading="lazy" decoding="async" width="1200" height="1200">
-        </div>
-        <div class="preview-copy">
-          <p id="dishCategory"></p>
-          <h2 id="dishTitle">Cargando la carta…</h2>
-          <span id="dishPrice"></span>
-          <p id="dishDescription"></p>
-          <p class="dish-note is-hidden" id="dishNote"></p>
-          <p class="photo-disclaimer" id="photoDisclaimer">*Fotos orientativas</p>
-          <p class="sr-only" id="dishStatus">Cargando la carta…</p>
-        </div>
-      </article>
     </section>
   </main>
 
   <nav class="category-tabs bottom-tabs" id="bottomTabs" aria-label="Cambiar sección de la carta"></nav>
 
-  <button class="smart-cart-fab" id="smartCartFab" type="button" aria-label="Ver el pedido">
-    <span aria-hidden="true">🧺</span>
-    <span>Mi pedido</span>
+  <!-- Carrito discreto: solo el lineart y el número dentro. -->
+  <button class="smart-cart-fab is-empty" id="smartCartFab" type="button" aria-label="Ver el pedido, vacío">
+    <svg class="smart-cart-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.9"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 4h3.2l1.1 4.4"/>
+      <path d="M7.3 8.4h21l-2.9 12.2H10.2z"/>
+      <circle cx="13" cy="26.4" r="1.9"/>
+      <circle cx="23.6" cy="26.4" r="1.9"/>
+    </svg>
     <span class="smart-cart-count" id="smartCartCount">0</span>
   </button>
 
@@ -76,13 +65,6 @@
   <div class="smart-sheet" id="smartSheet" aria-label="Ficha de producto"></div>
   <div class="smart-cart" id="smartCart" aria-label="Vuestro pedido"></div>
   <div class="smart-review" id="smartReview" aria-label="Revisión del pedido"></div>
-
-  <div class="image-lightbox" id="imageLightbox" role="dialog" aria-modal="true" aria-hidden="true" aria-label="Imagen ampliada">
-    <button class="image-lightbox-close" id="imageLightboxClose" type="button" aria-label="Cerrar imagen ampliada">×</button>
-    <div class="image-lightbox-panel">
-      <img class="image-lightbox-img" id="imageLightboxImg" src="" alt="" loading="lazy" decoding="async" width="1200" height="1200">
-    </div>
-  </div>
 
   <div class="allergen-modal" id="allergenModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="allergenTitle">
     <button class="allergen-modal-close" id="allergenModalClose" type="button" aria-label="Cerrar alérgenos">×</button>
