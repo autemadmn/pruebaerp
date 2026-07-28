@@ -33,16 +33,51 @@ export function allergenIdFromLabel(label) {
   return allergenIdByLabel.get(String(label).toLowerCase()) || null;
 }
 
-// Preferencias del onboarding. Cada una activa una o varias etiquetas.
-export const PREFERENCES = [
-  { id: 'compartir', label: 'Para compartir', hint: 'Tablas, picoteo y raciones', tags: ['compartir'] },
-  { id: 'carne', label: 'Carne', hint: 'Ibéricos, costillas, bocadillos', tags: ['carne'] },
-  { id: 'pescado', label: 'Pescado y mar', hint: 'Pulpo, salmón, mejillones', tags: ['pescado'] },
-  { id: 'ligero', label: 'Algo ligero', hint: 'Ensaladas y fresquito', tags: ['ligero'] },
-  { id: 'contundente', label: 'Algo contundente', hint: 'Pizzas y platos de cuchara', tags: ['contundente'] },
-  { id: 'vegetariano', label: 'Vegetariano', hint: 'Sin carne ni pescado', tags: ['vegetariano'] },
-  { id: 'dulce', label: 'Dulce y frío', hint: 'Smoothies y frappés', tags: ['dulce'] }
+// Cómo viene la mesa. Una sola respuesta, tres tarjetas grandes: marca el
+// tamaño del pedido sin preguntar por categorías.
+export const APPETITES = [
+  {
+    id: 'picar',
+    icon: '🍻',
+    label: 'Vamos a picar',
+    hint: 'Algo suelto para acompañar',
+    tags: ['compartir', 'ligero']
+  },
+  {
+    id: 'comer',
+    icon: '🍽️',
+    label: 'Queremos comer',
+    hint: 'Una comida en condiciones',
+    tags: []
+  },
+  {
+    id: 'hambre',
+    icon: '🔥',
+    label: 'Venimos con mucha hambre',
+    hint: 'Que no falte de nada',
+    tags: ['contundente', 'compartir']
+  }
 ];
+
+// Preferencias del onboarding: solo tres, de selección múltiple. Con esto basta
+// para personalizar las recomendaciones sin convertirlo en un formulario.
+export const PREFERENCES = [
+  { id: 'carne', icon: '🥩', label: 'Carne', hint: 'Ibéricos, costillas, bocadillos', tags: ['carne'] },
+  { id: 'pescado', icon: '🐟', label: 'Pescado y mar', hint: 'Pulpo, salmón, mejillones', tags: ['pescado'] },
+  { id: 'ligero', icon: '🥗', label: 'Algo ligero', hint: 'Ensaladas y fresquito', tags: ['ligero'] }
+];
+
+// Nombre legible de cada etiqueta gastronómica, también de las que ya no se
+// preguntan directamente pero se siguen usando en fichas y recomendaciones.
+export const TAG_LABELS = {
+  carne: 'Carne',
+  pescado: 'Pescado y mar',
+  ligero: 'Algo ligero',
+  contundente: 'Contundente',
+  compartir: 'Para compartir',
+  vegetariano: 'Vegetariano',
+  dulce: 'Dulce y frío'
+};
 
 // Familias gastronómicas usadas por el motor de recomendaciones cruzadas.
 // entrante | principal | acompanamiento | dulce | bebida

@@ -6,7 +6,9 @@
 
 import {
   ALLERGENS,
+  APPETITES,
   PREFERENCES,
+  TAG_LABELS,
   allergenCatalog,
   allergenIdFromLabel,
   getProductKind,
@@ -42,6 +44,7 @@ const defaultTable = {
   hasAllergies: null,
   allergens: [],
   people: null,
+  appetite: null,
   preferences: []
 };
 
@@ -450,6 +453,9 @@ function selectedTags() {
     const preference = PREFERENCES.find((option) => option.id === prefId);
     preference?.tags.forEach((tag) => tags.add(tag));
   });
+  // «Cómo venís hoy» también pesa: picar tira a compartir y ligero, mucha
+  // hambre a contundente.
+  APPETITES.find((option) => option.id === table.appetite)?.tags.forEach((tag) => tags.add(tag));
   return tags;
 }
 
@@ -477,8 +483,7 @@ function buildInitialRecommendations() {
 
     if (matched.length) {
       score += 45 + matched.length * 12;
-      const preference = PREFERENCES.find((option) => option.tags.some((tag) => matched.includes(tag)));
-      reason = preference ? `Porque os apetece ${preference.label.toLowerCase()}` : 'Encaja con vuestras preferencias';
+      reason = `Porque os apetece ${(TAG_LABELS[matched[0]] || matched[0]).toLowerCase()}`;
     } else if (tags.size) {
       score -= 15;
     }
@@ -611,6 +616,7 @@ function openOnboarding({ fromStart = true } = {}) {
     hasAllergies: table.hasAllergies,
     allergens: [...table.allergens],
     people: table.people,
+    appetite: table.appetite,
     preferences: [...table.preferences]
   };
   onboardingStep = fromStart ? 'intro' : 'allergies';
@@ -631,6 +637,7 @@ function finishOnboarding() {
     hasAllergies: draft.hasAllergies,
     allergens: draft.hasAllergies ? draft.allergens : [],
     people: draft.people || 2,
+    appetite: draft.appetite,
     preferences: draft.preferences
   };
   persistTable();
@@ -657,6 +664,8 @@ function renderOnboarding() {
   panel.setAttribute('aria-modal', 'true');
 
   if (onboardingStep !== 'intro') {
+    // La marca cede el protagonismo al flujo: solo el nombre sobre el paso.
+    panel.append(el('p', 'smart-wordmark', 'Tavola'));
     const steps = el('div', 'smart-steps');
     steps.setAttribute('aria-hidden', 'true');
     for (let index = 0; index < STEP_COUNT; index += 1) {
@@ -671,11 +680,7 @@ function renderOnboarding() {
   const actions = el('div', 'smart-onboarding-actions');
 
   if (onboardingStep === 'intro') {
-    const logo = document.createElement('img');
-    logo.className = 'smart-onboarding-logo';
-    logo.src = 'assets/branding/logooriginaltavola.webp';
-    logo.alt = 'Tavola Chiringo';
-    panel.append(logo);
+    panel.append(el('p', 'smart-wordmark', 'Tavola'));
     panel.append(el('p', 'smart-onboarding-eyebrow', 'Bienvenidos'));
     panel.append(el('h2', null, 'Preparamos la carta a vuestra medida'));
     panel.append(
@@ -855,42 +860,58 @@ function renderOnboarding() {
     return;
   }
 
-  // preferences
+  // preferences: dos decisiones rápidas, nada de listas largas.
   panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 3 de 3'));
-  panel.append(el('h2', null, '¿Qué os apetece hoy?'));
-  panel.append(
-    el(
-      'p',
-      'smart-onboarding-copy',
-      'Elige lo que quieras: solo personaliza las recomendaciones de arriba. La carta la seguiréis viendo entera.'
-    )
-  );
+  panel.append(el('h2', null, '¿Cómo venís hoy?'));
 
-  const chipset = el('div', 'smart-chipset');
+  const appetiteGrid = el('div', 'smart-appetite');
+  APPETITES.forEach((option) => {
+    const card = button('smart-appetite-card', null, () => {
+      draft.appetite = option.id;
+      appetiteGrid.querySelectorAll('.smart-appetite-card').forEach((node) => {
+        const isThis = node === card;
+        node.classList.toggle('is-selected', isThis);
+        node.setAttribute('aria-pressed', String(isThis));
+      });
+    });
+    const selected = draft.appetite === option.id;
+    card.classList.toggle('is-selected', selected);
+    card.setAttribute('aria-pressed', String(selected));
+    card.append(el('span', 'smart-appetite-icon', option.icon));
+    card.append(el('strong', null, option.label));
+    card.append(el('small', null, option.hint));
+    appetiteGrid.append(card);
+  });
+  body.append(appetiteGrid);
+
+  body.append(el('p', 'smart-onboarding-sub', '¿Algo que os apetezca especialmente?'));
+
+  const taste = el('div', 'smart-taste');
   PREFERENCES.forEach((preference) => {
-    const chip = button('smart-chip', null, () => {
+    const card = button('smart-taste-card', null, () => {
       const index = draft.preferences.indexOf(preference.id);
       if (index >= 0) draft.preferences.splice(index, 1);
       else draft.preferences.push(preference.id);
-      chip.classList.toggle('is-selected');
-      chip.setAttribute('aria-pressed', String(chip.classList.contains('is-selected')));
+      card.classList.toggle('is-selected');
+      card.setAttribute('aria-pressed', String(card.classList.contains('is-selected')));
     });
-    chip.setAttribute('aria-pressed', String(draft.preferences.includes(preference.id)));
-    if (draft.preferences.includes(preference.id)) chip.classList.add('is-selected');
-    const stack = el('div', 'smart-chip-stack');
-    stack.append(el('span', null, preference.label), el('small', null, preference.hint));
-    chip.append(el('span', 'smart-chip-check', '✓'), stack);
-    chipset.append(chip);
+    const selected = draft.preferences.includes(preference.id);
+    card.classList.toggle('is-selected', selected);
+    card.setAttribute('aria-pressed', String(selected));
+    card.append(el('span', 'smart-taste-icon', preference.icon));
+    card.append(el('strong', null, preference.label));
+    taste.append(card);
   });
-  body.append(chipset);
+  body.append(taste);
 
   panel.append(body);
-  actions.append(button('smart-btn is-quiet', 'Saltar preferencias', () => {
+  actions.append(button('smart-btn is-quiet', 'Saltar', () => {
     draft.preferences = [];
+    draft.appetite = null;
     finishOnboarding();
   }));
   actions.append(el('span', 'smart-spacer'));
-  actions.append(button('smart-btn', 'Ver la carta', finishOnboarding));
+  actions.append(button('smart-btn', 'Elegir bebidas', finishOnboarding));
   panel.append(actions);
   dom.onboarding.append(panel);
 }
@@ -1241,8 +1262,7 @@ export function openProductSheet(item, groupId) {
     if (meta.tags.length) {
       const tags = el('div', 'smart-sheet-tags');
       meta.tags.forEach((tag) => {
-        const preference = PREFERENCES.find((option) => option.tags.includes(tag));
-        tags.append(el('span', 'smart-tag', preference?.label || tag));
+        tags.append(el('span', 'smart-tag', TAG_LABELS[tag] || tag));
       });
       body.append(tags);
     }
@@ -1995,7 +2015,7 @@ function buildTourContext() {
     peopleCount,
     preferenceTags: selectedTags,
     preferenceLabel: (tag) =>
-      (PREFERENCES.find((option) => option.tags.includes(tag))?.label || tag).toLowerCase(),
+      (TAG_LABELS[tag] || tag).toLowerCase(),
     productMeta: getProductMeta,
     basePrice,
     title: itemTitle,

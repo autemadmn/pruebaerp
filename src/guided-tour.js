@@ -28,7 +28,7 @@ const PHASES = [
       'cocteles-clasicos',
       'granizados-smoothies-frappes'
     ],
-    cta: 'Pedir bebidas',
+    cta: 'Elegir entrantes',
     skip: 'Seguir sin bebidas',
     highlight: false
   },
@@ -37,7 +37,7 @@ const PHASES = [
     title: 'Elige los entrantes',
     hint: 'Pulsa los entrantes que queráis pedir.',
     groups: ['picar', 'tapas'],
-    cta: 'Continuar a principales',
+    cta: 'Elegir principales',
     skip: 'Continuar sin entrantes',
     highlight: true
   },
@@ -46,7 +46,7 @@ const PHASES = [
     title: 'Elige los platos principales',
     hint: 'Pulsa los platos que queráis pedir.',
     groups: ['desayuno', 'bocadillos', 'pizzas', 'platos'],
-    cta: 'Revisar pedido',
+    cta: 'Finalizar pedido',
     skip: 'Continuar sin principales',
     highlight: true
   }
@@ -56,7 +56,8 @@ const PHASES = [
 let stepIndex = 0;
 let step = null;
 let active = false;
-let splashTimer = null;
+// La pista de scroll se enseña una vez por sesión, no en cada fase.
+let scrollHintUsed = false;
 
 // ---------------------------------------------------------------------------
 // Utilidades de DOM
@@ -144,24 +145,41 @@ function phasePick(phase) {
 // Pantalla de fase
 // ---------------------------------------------------------------------------
 
-function showSplash(title, onDone) {
-  const splash = el('div', 'tour-splash');
-  splash.setAttribute('aria-hidden', 'true');
-  splash.append(el('h2', null, title));
-  document.body.append(splash);
+/**
+ * El encabezado no aparece y desaparece: nace grande en el centro de la
+ * pantalla y se encoge hasta su sitio, arriba. Es siempre el mismo elemento, así
+ * que la transición se siente continua.
+ */
+function playHeaderEntrance(head) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
-  window.clearTimeout(splashTimer);
-  splashTimer = window.setTimeout(() => {
-    splash.remove();
-    onDone?.();
-  }, 1900);
+  const backdrop = el('div', 'tour-entrance-backdrop');
+  document.body.append(backdrop);
 
-  // Pulsar salta la animación: nunca se obliga a esperar.
-  splash.addEventListener('click', () => {
-    window.clearTimeout(splashTimer);
-    splash.remove();
-    onDone?.();
+  const rect = head.getBoundingClientRect();
+  const targetCenterX = rect.left + rect.width / 2;
+  const targetCenterY = rect.top + rect.height / 2;
+  const scale = Math.min(1.5, (window.innerWidth * 0.92) / Math.max(rect.width, 1));
+  const dx = window.innerWidth / 2 - targetCenterX;
+  const dy = window.innerHeight / 2 - targetCenterY;
+
+  head.classList.add('is-entering');
+  head.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      head.style.transition = 'transform 900ms cubic-bezier(0.4, 0, 0.2, 1)';
+      head.style.transform = 'translate(0, 0) scale(1)';
+      backdrop.classList.add('is-out');
+    });
   });
+
+  window.setTimeout(() => {
+    head.classList.remove('is-entering');
+    head.style.transition = '';
+    head.style.transform = '';
+    backdrop.remove();
+  }, 1000);
 }
 
 function renderHeader(phase, { withStep = true } = {}) {
@@ -179,6 +197,7 @@ function renderHeader(phase, { withStep = true } = {}) {
     head.append(progress);
   }
 
+  head.append(el('p', 'tour-wordmark', 'Tavola'));
   head.append(el('h2', 'tour-title', phase.title));
   head.append(el('p', 'tour-hint', phase.hint));
 
@@ -200,7 +219,7 @@ function renderQuantityRow(entry) {
   const minus = button('', '−', (event) => {
     event.stopPropagation();
     ctx.setQuantity(entry, Math.max(0, ctx.quantityOf(entry.item.id) - 1));
-    renderPhase();
+    refreshTour();
   });
   minus.setAttribute('aria-label', `Quitar una unidad de ${ctx.title(entry.item)}`);
 
@@ -210,7 +229,7 @@ function renderQuantityRow(entry) {
   const plus = button('', '+', (event) => {
     event.stopPropagation();
     ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
-    renderPhase();
+    refreshTour();
   });
   plus.setAttribute('aria-label', `Añadir una unidad de ${ctx.title(entry.item)}`);
 
@@ -224,22 +243,9 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
   card.classList.toggle('is-selected', quantity > 0);
   card.classList.toggle('is-featured', featured);
 
-  if (featured) {
-    card.append(el('p', 'tour-featured-label', 'El que mejor encaja con vuestra mesa'));
-  }
-
-  // Pulsar el producto lo selecciona. La ficha se abre aparte, para que abrirla
-  // nunca añada nada por sí sola.
-  const pick = button('tour-pick', null, () => {
-    ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
-    renderPhase();
-  });
-  pick.setAttribute(
-    'aria-label',
-    `Añadir ${ctx.title(entry.item)}, ${ctx.priceLabel(entry.item)}`
-  );
-
-  const thumb = el('span', 'tour-thumb');
+  // La foto ocupa toda la altura del lateral izquierdo, sin recortes: es lo que
+  // más vende el producto. Los distintivos flotan encima con fondo de cristal.
+  const thumb = el('div', 'tour-thumb');
   const image = document.createElement('img');
   image.src = ctx.image(entry.item);
   image.alt = '';
@@ -248,54 +254,77 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
   image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
   if (image.complete && image.naturalWidth > 0) image.classList.add('is-loaded');
   thumb.append(image);
+  card.append(thumb);
+
+  const badges = el('div', 'tour-badges');
+  if (featured) badges.append(el('span', 'tour-badge-glass is-featured', '★ Recomendado'));
+
+  const severity = ctx.allergenSeverity(entry.item);
+  const allergens = button(`tour-badge-glass is-allergen is-${severity}`, null, (event) => {
+    event.stopPropagation();
+    ctx.openAllergens(entry.item);
+  });
+  allergens.append(
+    el(
+      'span',
+      null,
+      severity === 'alert'
+        ? '⛔ Contiene alérgenos'
+        : severity === 'warn'
+          ? '⚠️ Posibles trazas'
+          : 'Ver alérgenos'
+    )
+  );
+  badges.append(allergens);
+  card.append(badges);
+
+  const main = el('div', 'tour-item-main');
+
+  // Pulsar el producto lo selecciona. La ficha se abre aparte, para que abrirla
+  // nunca añada nada por sí sola.
+  const pick = button('tour-pick', null, () => {
+    ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
+    renderPhase();
+  });
+  pick.setAttribute('aria-label', `Añadir ${ctx.title(entry.item)}, ${ctx.priceLabel(entry.item)}`);
 
   const copy = el('span', 'tour-copy');
+  if (featured) copy.append(el('span', 'tour-featured-label', 'El que mejor encaja con vuestra mesa'));
   copy.append(el('strong', null, ctx.title(entry.item)));
   const description = ctx.description(entry.item);
   if (description) copy.append(el('small', null, description));
   if (featured && reason) copy.append(el('em', 'tour-reason', reason));
 
-  pick.append(thumb, copy, el('b', null, ctx.priceLabel(entry.item)));
+  pick.append(copy, el('b', null, ctx.priceLabel(entry.item)));
 
   if (quantity > 0) {
     const mark = el('span', 'tour-check', '✓');
     mark.setAttribute('aria-hidden', 'true');
     pick.append(mark);
   }
-
-  card.append(pick);
+  main.append(pick);
 
   const foot = el('div', 'tour-item-foot');
-  const severity = ctx.allergenSeverity(entry.item);
-  const allergens = button(`tour-chip is-allergen is-${severity}`, null, () =>
-    ctx.openAllergens(entry.item)
-  );
-  allergens.append(
-    el('span', null, severity === 'alert' ? '⛔ Contiene alérgenos' : severity === 'warn' ? '⚠️ Posibles trazas' : 'Ver alérgenos')
-  );
-  foot.append(allergens);
-
-  foot.append(
-    button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId))
-  );
-
+  foot.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
   foot.append(el('span', 'tour-spacer'));
 
   if (quantity > 0) {
     foot.append(renderQuantityRow(entry));
   } else {
-    const add = button('tour-chip is-add', '+ Añadir', () => {
-      ctx.setQuantity(entry, 1);
-      renderPhase();
-    });
-    foot.append(add);
+    foot.append(
+      button('tour-chip is-add', '+ Añadir', () => {
+        ctx.setQuantity(entry, 1);
+        renderPhase();
+      })
+    );
   }
 
-  card.append(foot);
+  main.append(foot);
+  card.append(main);
   return card;
 }
 
-function renderPhase() {
+function renderPhase({ entrance = false } = {}) {
   const phase = PHASES[stepIndex];
   const host = stage();
   if (!host) return;
@@ -303,7 +332,8 @@ function renderPhase() {
   const scroll = host.scrollTop;
   host.textContent = '';
   host.className = 'tour-stage';
-  host.append(renderHeader(phase));
+  const head = renderHeader(phase);
+  host.append(head);
 
   const body = el('div', 'tour-body');
 
@@ -342,6 +372,45 @@ function renderPhase() {
 
   host.append(bar);
   host.scrollTop = scroll;
+
+  if (entrance) {
+    playHeaderEntrance(head);
+    showScrollHint();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pista de scroll: mucha gente no descubre que hay más productos abajo
+// ---------------------------------------------------------------------------
+
+function showScrollHint() {
+  if (scrollHintUsed) return;
+  document.querySelector('.tour-scroll-hint')?.remove();
+
+  const hint = el('div', 'tour-scroll-hint');
+  hint.setAttribute('aria-hidden', 'true');
+  hint.append(el('span', 'tour-scroll-arrow', '⌄'));
+  hint.append(el('span', 'tour-scroll-text', 'Desliza para ver más'));
+  document.body.append(hint);
+
+  // Al primer desplazamiento desaparece y no vuelve en toda la sesión.
+  const dismiss = () => {
+    scrollHintUsed = true;
+    hint.classList.add('is-out');
+    window.setTimeout(() => hint.remove(), 320);
+    window.removeEventListener('scroll', dismiss);
+    window.removeEventListener('wheel', dismiss);
+    window.removeEventListener('touchmove', dismiss);
+  };
+
+  // El salto al principio de la fase es un scroll programático: si se escuchara
+  // ya, la pista se descartaría sola antes de que nadie la viera.
+  window.setTimeout(() => {
+    if (scrollHintUsed) return;
+    window.addEventListener('scroll', dismiss, { passive: true, once: true });
+    window.addEventListener('wheel', dismiss, { passive: true, once: true });
+    window.addEventListener('touchmove', dismiss, { passive: true, once: true });
+  }, 500);
 }
 
 // ---------------------------------------------------------------------------
@@ -614,7 +683,7 @@ function renderReviewStep() {
     step = 'phase';
     renderPhase();
   }));
-  bar.append(button('tour-btn', 'Continuar', () => {
+  bar.append(button('tour-btn', 'Ver los favoritos', () => {
     step = 'populares';
     renderPopular();
   }));
@@ -655,66 +724,65 @@ function renderPopular() {
   head.append(tools);
   host.append(head);
 
+  // Podio: los tres caben en pantalla sin desplazarse. El primero manda.
   const body = el('div', 'tour-body');
-  const list = el('div', 'tour-list');
+  const podium = el('div', 'tour-podium');
+  const places = ['is-first', 'is-second', 'is-third'];
 
   popularPicks().forEach((pick, index) => {
     const entry = pick.entry;
-    const card = el('article', 'tour-item is-popular');
     const quantity = ctx.quantityOf(entry.item.id);
+    const card = el('article', `tour-podium-card ${places[index] || ''}`);
     card.classList.toggle('is-selected', quantity > 0);
 
-    const rank = el('span', 'tour-rank', `Nº${index + 1} en pedidos`);
-    card.append(rank);
-
-    const pickButton = button('tour-pick', null, () => {
-      ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
-      renderPopular();
-    });
-    pickButton.setAttribute('aria-label', `Añadir ${ctx.title(entry.item)}`);
-
-    const thumb = el('span', 'tour-thumb');
+    const media = el('div', 'tour-podium-media');
     const image = document.createElement('img');
     image.src = ctx.image(entry.item);
     image.alt = '';
     image.loading = 'lazy';
     image.addEventListener('load', () => image.classList.add('is-loaded'), { once: true });
     if (image.complete && image.naturalWidth > 0) image.classList.add('is-loaded');
-    thumb.append(image);
+    media.append(image);
+    media.append(el('span', 'tour-podium-rank', String(index + 1)));
+    card.append(media);
 
-    const copy = el('span', 'tour-copy');
+    const copy = el('div', 'tour-podium-copy');
+    copy.append(el('span', 'tour-podium-label', index === 0 ? 'El más pedido' : `Nº${index + 1} en pedidos`));
     copy.append(el('strong', null, ctx.title(entry.item)));
-    const description = ctx.description(entry.item);
-    if (description) copy.append(el('small', null, description));
+    copy.append(el('b', null, ctx.priceLabel(entry.item)));
+    card.append(copy);
 
-    pickButton.append(thumb, copy, el('b', null, ctx.priceLabel(entry.item)));
-    card.append(pickButton);
+    const actions = el('div', 'tour-podium-actions');
+    actions.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
+    if (quantity > 0) actions.append(renderQuantityRow(entry));
+    else
+      actions.append(
+        button('tour-chip is-add', '+ Añadir', () => {
+          ctx.setQuantity(entry, 1);
+          renderPopular();
+        })
+      );
+    card.append(actions);
 
-    const foot = el('div', 'tour-item-foot');
-    foot.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
-    foot.append(el('span', 'tour-spacer'));
-    if (quantity > 0) foot.append(renderQuantityRow(entry));
-    else foot.append(button('tour-chip is-add', '+ Añadir', () => {
-      ctx.setQuantity(entry, 1);
-      renderPopular();
-    }));
-    card.append(foot);
-
-    list.append(card);
+    podium.append(card);
   });
 
-  body.append(list);
+  body.append(podium);
   host.append(body);
 
   const bar = el('div', 'tour-bar');
-  bar.append(button('tour-btn is-ghost tour-btn-narrow', 'Seguir sin añadir', () => {
-    step = 'final';
-    renderFinal();
-  }));
-  bar.append(button('tour-btn', 'Ir a enviar el pedido', () => {
-    step = 'final';
-    renderFinal();
-  }));
+  bar.append(
+    button('tour-btn is-ghost tour-btn-narrow', 'Sin añadir', () => {
+      step = 'final';
+      renderFinal();
+    })
+  );
+  bar.append(
+    button('tour-btn', 'Revisar y enviar', () => {
+      step = 'final';
+      renderFinal();
+    })
+  );
   host.append(bar);
 }
 
@@ -833,16 +901,9 @@ function goBack() {
 function goToPhase(index, { splash = true } = {}) {
   stepIndex = index;
   step = 'phase';
-  const phase = PHASES[index];
   stage().scrollTop = 0;
   window.scrollTo({ top: 0, behavior: 'auto' });
-
-  if (splash) {
-    stage().textContent = '';
-    showSplash(phase.title, renderPhase);
-  } else {
-    renderPhase();
-  }
+  renderPhase({ entrance: splash });
 }
 
 // ---------------------------------------------------------------------------
@@ -872,9 +933,9 @@ export function exitTour() {
   if (!active) return;
   active = false;
   step = null;
-  window.clearTimeout(splashTimer);
   document.body.classList.remove('tour-on');
-  document.querySelector('.tour-splash')?.remove();
+  document.querySelector('.tour-scroll-hint')?.remove();
+  document.querySelector('.tour-entrance-backdrop')?.remove();
   const host = stage();
   if (host) {
     host.textContent = '';

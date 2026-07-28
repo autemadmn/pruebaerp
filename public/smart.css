@@ -3232,12 +3232,7 @@ body.tour-on .smart-cart-fab {
 /* Durante el recorrido la cabecera de marca se reduce: manda el paso actual,
    pero no se pierde la identidad de la carta. */
 body.tour-on .intro {
-  margin-bottom: 4px;
-}
-
-body.tour-on .brand-title {
-  max-width: min(230px, 60vw);
-  margin: 0 auto;
+  display: none;
 }
 
 body.tour-on .intro-copy {
@@ -3246,4 +3241,593 @@ body.tour-on .intro-copy {
 
 body.tour-on .language-switcher {
   top: max(10px, env(safe-area-inset-top));
+}
+
+/* ==========================================================================
+   Onboarding ligero, transición continua y foto a sangre
+   ========================================================================== */
+
+/* --- La marca cede protagonismo al flujo --------------------------------- */
+
+.smart-wordmark,
+.tour-wordmark {
+  margin: 0 0 10px;
+  color: var(--tomato);
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.tour-wordmark {
+  margin-bottom: 6px;
+  font-size: 1rem;
+  opacity: 0.75;
+}
+
+/* --- Paso 3: dos decisiones, tarjetas grandes ---------------------------- */
+
+.smart-appetite {
+  display: grid;
+  gap: 10px;
+}
+
+.smart-appetite-card {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  grid-template-rows: auto auto;
+  gap: 2px 16px;
+  padding: 18px 20px;
+  border: 1.5px solid rgba(38, 31, 26, 0.12);
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.66);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 170ms ease, background 170ms ease, transform 170ms ease,
+    box-shadow 170ms ease;
+}
+
+.smart-appetite-card:hover {
+  border-color: rgba(187, 74, 52, 0.35);
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.smart-appetite-card:focus-visible {
+  outline: 3px solid rgba(109, 127, 95, 0.4);
+  outline-offset: 2px;
+}
+
+.smart-appetite-card.is-selected {
+  border-color: var(--smart-accent);
+  background: #fffdf8;
+  box-shadow: 0 14px 32px rgba(201, 86, 58, 0.22);
+}
+
+.smart-appetite-icon {
+  grid-row: 1 / -1;
+  align-self: center;
+  font-size: 2.2rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.smart-appetite-card strong {
+  align-self: end;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.smart-appetite-card small {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.smart-onboarding-sub {
+  margin: 22px 0 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.smart-taste {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.smart-taste-card {
+  display: grid;
+  gap: 8px;
+  padding: 16px 8px;
+  border: 1.5px solid rgba(38, 31, 26, 0.12);
+  border-radius: 14px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.66);
+  place-items: center;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 170ms ease, background 170ms ease, transform 170ms ease,
+    box-shadow 170ms ease;
+}
+
+.smart-taste-card:hover {
+  border-color: rgba(187, 74, 52, 0.35);
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.smart-taste-card:focus-visible {
+  outline: 3px solid rgba(109, 127, 95, 0.4);
+  outline-offset: 2px;
+}
+
+.smart-taste-card.is-selected {
+  border-color: var(--smart-accent);
+  background: #fffdf8;
+  box-shadow: 0 12px 26px rgba(201, 86, 58, 0.2);
+}
+
+.smart-taste-icon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.smart-taste-card strong {
+  font-size: 0.92rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+/* --- Transición continua del encabezado de fase -------------------------- */
+
+.tour-entrance-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 29;
+  background: rgba(38, 31, 26, 0.66);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 1;
+  pointer-events: none;
+  transition: opacity 900ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tour-entrance-backdrop.is-out {
+  opacity: 0;
+}
+
+/* Mientras viaja, el encabezado va por encima del velo. */
+.tour-head.is-entering {
+  z-index: 31;
+  transform-origin: center center;
+  box-shadow: 0 30px 80px rgba(38, 31, 26, 0.4);
+  will-change: transform;
+}
+
+/* --- Pista de scroll ------------------------------------------------------ */
+
+.tour-scroll-hint {
+  position: fixed;
+  bottom: calc(104px + env(safe-area-inset-bottom));
+  left: 50%;
+  z-index: 46;
+  display: grid;
+  gap: 2px;
+  padding: 9px 16px 7px;
+  border: 1px solid rgba(38, 31, 26, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 250, 242, 0.9);
+  box-shadow: 0 10px 26px rgba(38, 31, 26, 0.18);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  place-items: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  transition: opacity 300ms ease, transform 300ms ease;
+}
+
+.tour-scroll-hint.is-out {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
+}
+
+.tour-scroll-arrow {
+  color: var(--smart-accent);
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 0.6;
+  animation: tourNudge 1600ms ease-in-out infinite;
+}
+
+.tour-scroll-text {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+
+@keyframes tourNudge {
+  0%,
+  100% {
+    transform: translateY(-3px);
+    opacity: 0.55;
+  }
+
+  50% {
+    transform: translateY(3px);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-scroll-arrow {
+    animation: none;
+  }
+}
+
+/* --- Producto del recorrido: la foto ocupa todo el lateral --------------- */
+
+.tour-item {
+  position: relative;
+  display: block;
+  min-height: 130px;
+}
+
+.tour-item .tour-thumb {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: 0;
+  width: 45%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 58%, transparent 100%);
+}
+
+.tour-item .tour-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 520ms ease;
+}
+
+.tour-item .tour-thumb img.is-loaded {
+  opacity: 1;
+}
+
+/* Distintivos flotando sobre la foto, con fondo de cristal. */
+.tour-badges {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.tour-badge-glass {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 250, 242, 0.6);
+  border-radius: 999px;
+  color: var(--ink);
+  background: rgba(250, 243, 231, 0.82);
+  box-shadow: 0 4px 14px rgba(38, 31, 26, 0.2);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 0.74rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Solo el botón responde al toque, no toda la foto. La zona sensible se
+   agranda un poco por fuera sin cambiar el aspecto. */
+button.tour-badge-glass {
+  position: relative;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+button.tour-badge-glass::after {
+  content: "";
+  position: absolute;
+  inset: -8px -10px;
+}
+
+button.tour-badge-glass:hover {
+  background: #fffdf8;
+}
+
+button.tour-badge-glass:focus-visible {
+  outline: 3px solid rgba(109, 127, 95, 0.5);
+  outline-offset: 2px;
+}
+
+.tour-badge-glass.is-featured {
+  color: #fff7ec;
+  background: rgba(201, 86, 58, 0.9);
+  border-color: rgba(255, 250, 242, 0.44);
+}
+
+.tour-badge-glass.is-allergen.is-alert {
+  color: var(--smart-alert);
+  background: rgba(253, 236, 234, 0.92);
+}
+
+.tour-badge-glass.is-allergen.is-warn {
+  color: var(--smart-warn);
+  background: rgba(253, 243, 224, 0.92);
+}
+
+.tour-item-main {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 130px;
+}
+
+.tour-item .tour-pick {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 12px 6px 0;
+}
+
+.tour-item .tour-copy {
+  margin-left: 46%;
+}
+
+.tour-item .tour-item-foot {
+  padding: 0 12px 12px 46%;
+}
+
+.tour-featured-label {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--smart-accent);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* --- Podio de favoritos: los tres caben sin desplazarse ------------------ */
+
+.tour-podium {
+  display: grid;
+  gap: 10px;
+}
+
+.tour-podium-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 14px 10px 10px;
+  border: 1.5px solid rgba(38, 31, 26, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 250, 242, 0.82);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.tour-podium-card.is-selected {
+  border-color: rgba(79, 107, 65, 0.55);
+  background: rgba(240, 244, 235, 0.94);
+}
+
+.tour-podium-card.is-first {
+  padding: 14px 16px 14px 12px;
+  border-color: rgba(201, 154, 61, 0.55);
+  background: #fffdf8;
+  box-shadow: 0 18px 40px rgba(201, 154, 61, 0.22);
+}
+
+.tour-podium-media {
+  position: relative;
+  width: 92px;
+  height: 92px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--linen);
+}
+
+.tour-podium-card.is-first .tour-podium-media {
+  width: 108px;
+  height: 108px;
+}
+
+.tour-podium-card.is-first {
+  grid-template-columns: 108px 1fr auto;
+}
+
+.tour-podium-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 520ms ease;
+}
+
+.tour-podium-media img.is-loaded {
+  opacity: 1;
+}
+
+.tour-podium-rank {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  color: #fff7ec;
+  background: rgba(38, 31, 26, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  place-items: center;
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.tour-podium-card.is-first .tour-podium-rank {
+  color: #4a3a12;
+  background: var(--gold);
+}
+
+.tour-podium-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tour-podium-label {
+  color: var(--sage);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.tour-podium-card.is-first .tour-podium-label {
+  color: #9a7420;
+}
+
+.tour-podium-copy strong {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: "Playfair Display", Georgia, serif;
+  font-size: 1.2rem;
+  line-height: 1.1;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.tour-podium-card.is-first .tour-podium-copy strong {
+  font-size: 1.4rem;
+}
+
+.tour-podium-copy b {
+  color: var(--tomato);
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.tour-podium-actions {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+@media (max-width: 820px) {
+  .smart-appetite-card {
+    grid-template-columns: 48px 1fr;
+    gap: 2px 12px;
+    padding: 14px 16px;
+  }
+
+  .smart-appetite-icon {
+    font-size: 1.9rem;
+  }
+
+  .smart-appetite-card strong {
+    font-size: 1.2rem;
+  }
+
+  .smart-taste-card {
+    padding: 13px 6px;
+  }
+
+  .smart-taste-card strong {
+    font-size: 0.82rem;
+  }
+
+  .tour-item .tour-copy {
+    margin-left: 44%;
+  }
+
+  .tour-item .tour-item-foot {
+    padding-left: 44%;
+  }
+
+  .tour-podium-card,
+  .tour-podium-card.is-first {
+    grid-template-columns: 76px 1fr;
+    gap: 12px;
+    padding: 10px;
+  }
+
+  .tour-podium-media,
+  .tour-podium-card.is-first .tour-podium-media {
+    width: 76px;
+    height: 76px;
+  }
+
+  .tour-podium-copy strong,
+  .tour-podium-card.is-first .tour-podium-copy strong {
+    font-size: 1.1rem;
+  }
+
+  .tour-podium-actions {
+    grid-column: 1 / -1;
+    grid-auto-flow: column;
+    justify-content: start;
+    justify-items: start;
+    gap: 8px;
+  }
+}
+
+/* --- Sin zoom: la carta se usa como una app ----------------------------- */
+
+html {
+  /* Evita que iOS reescale el texto al girar el movil. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: pan-x pan-y;
+}
+
+body {
+  touch-action: pan-x pan-y;
+}
+
+/* El doble toque sobre un control no debe ampliar la pagina. */
+button,
+a,
+.dish,
+.tour-item,
+.smart-reco-card,
+.smart-combo-card {
+  touch-action: manipulation;
+}
+
+/* --- Carta normal: la foto tambien llega al borde inferior -------------- */
+
+.dish-select {
+  padding-bottom: 6px;
+}
+
+.dish-thumb {
+  /* Cubre tambien la franja del pie, para no recortar la foto. */
+  height: calc(100% + 46px);
+}
+
+.dish.is-static .dish-thumb {
+  height: 100%;
 }
