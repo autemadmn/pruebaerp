@@ -58,6 +58,8 @@ let step = null;
 let active = false;
 // La pista de scroll se enseña una vez por sesión, no en cada fase.
 let scrollHintUsed = false;
+// Destacado de cada fase, congelado: si cambiara al pedirlo, desconcierta.
+let phasePicks = {};
 
 // ---------------------------------------------------------------------------
 // Utilidades de DOM
@@ -105,6 +107,9 @@ function countInPhase(phase) {
  * de las sugerencias que salen al añadir algo, que miran al producto añadido.
  */
 function phasePick(phase) {
+  // Se calcula una sola vez por fase: pedirlo no debe cambiar la recomendación.
+  if (Object.prototype.hasOwnProperty.call(phasePicks, phase.id)) return phasePicks[phase.id];
+
   const table = ctx.table();
   const people = ctx.peopleCount();
   const tags = ctx.preferenceTags();
@@ -138,6 +143,7 @@ function phasePick(phase) {
     if (!best || score > best.score) best = { entry, score, reason };
   });
 
+  phasePicks[phase.id] = best;
   return best;
 }
 
@@ -166,20 +172,23 @@ function playHeaderEntrance(head) {
   head.classList.add('is-entering');
   head.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
 
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      head.style.transition = 'transform 900ms cubic-bezier(0.4, 0, 0.2, 1)';
-      head.style.transform = 'translate(0, 0) scale(1)';
-      backdrop.classList.add('is-out');
-    });
-  });
+  // Se queda grande y centrado sobre el fondo oscurecido y solo después
+  // empieza a encogerse hasta su sitio.
+  const HOLD = 1600;
+  const TRAVEL = 900;
+
+  window.setTimeout(() => {
+    head.style.transition = `transform ${TRAVEL}ms cubic-bezier(0.4, 0, 0.2, 1)`;
+    head.style.transform = 'translate(0, 0) scale(1)';
+    backdrop.classList.add('is-out');
+  }, HOLD);
 
   window.setTimeout(() => {
     head.classList.remove('is-entering');
     head.style.transition = '';
     head.style.transform = '';
     backdrop.remove();
-  }, 1000);
+  }, HOLD + TRAVEL + 60);
 }
 
 function renderHeader(phase, { withStep = true } = {}) {
@@ -199,7 +208,18 @@ function renderHeader(phase, { withStep = true } = {}) {
 
   head.append(el('p', 'tour-wordmark', 'Tavola'));
   head.append(el('h2', 'tour-title', phase.title));
-  head.append(el('p', 'tour-hint', phase.hint));
+
+  const hintRow = el('div', 'tour-hint-row');
+  hintRow.append(el('p', 'tour-hint', phase.hint));
+  // La ayuda de deslizar va junto al título: es lo primero que se lee.
+  if (!scrollHintUsed) {
+    const nudge = el('span', 'tour-scroll-hint');
+    nudge.setAttribute('aria-hidden', 'true');
+    nudge.append(el('span', 'tour-scroll-arrow', '⌄'));
+    nudge.append(el('span', 'tour-scroll-text', 'Desliza para ver más'));
+    hintRow.append(nudge);
+  }
+  head.append(hintRow);
 
   const tools = el('div', 'tour-head-tools');
   if (stepIndex > 0 || step !== 'phase') {
@@ -305,7 +325,11 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
   main.append(pick);
 
   const foot = el('div', 'tour-item-foot');
-  foot.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
+  if (hasPoster(entry)) {
+    foot.append(button('tour-chip is-poster', '👆 ¡Haz Click!', () => openPoster(entry)));
+  } else {
+    foot.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
+  }
   foot.append(el('span', 'tour-spacer'));
 
   if (quantity > 0) {
@@ -322,6 +346,114 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
   main.append(foot);
   card.append(main);
   return card;
+}
+
+// ---------------------------------------------------------------------------
+// Ficha visual «¡Haz Click!»
+// ---------------------------------------------------------------------------
+// Un cartel del producto: la foto grande y tres notas cortas señaladas con una
+// flechita. Solo tiene sentido en comida, así que en bebidas no se ofrece.
+
+const NOTE_SPOTS = [
+  { x: 26, y: 20, side: 'left' },
+  { x: 74, y: 48, side: 'right' },
+  { x: 34, y: 79, side: 'left' }
+];
+
+function posterNotesFor(entry) {
+  const written = ctx.posterNotes(entry.legacyId);
+  if (written?.length) return written.slice(0, 3);
+
+  // Respaldo por si algún producto aún no tiene notas escritas.
+  const meta = ctx.productMeta(entry.legacyId);
+  const notes = [];
+  if (meta.popularity >= 85) notes.push('De los más pedidos');
+  if (meta.tags.includes('compartir')) notes.push('Para compartir');
+  if (meta.tags.includes('ligero')) notes.push('Opción ligera');
+  if (meta.tags.includes('vegetariano')) notes.push('Sin carne ni pescado');
+  return notes.slice(0, 3);
+}
+
+function openPoster(entry) {
+  const overlay = el('div', 'tour-poster');
+  const panel = el('div', 'tour-poster-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  const close = button('tour-poster-close', '×', () => overlay.remove());
+  close.setAttribute('aria-label', 'Cerrar');
+  panel.append(close);
+
+  const stageBox = el('div', 'tour-poster-stage');
+  const image = document.createElement('img');
+  image.src = ctx.image(entry.item);
+  image.alt = ctx.title(entry.item);
+  stageBox.append(image);
+
+  posterNotesFor(entry).forEach((text, index) => {
+    const spot = NOTE_SPOTS[index % NOTE_SPOTS.length];
+    const note = el('div', `tour-poster-note is-${spot.side}`);
+    note.style.left = `${spot.x}%`;
+    note.style.top = `${spot.y}%`;
+    note.append(el('span', 'tour-poster-dot'));
+    note.append(el('span', 'tour-poster-text', text));
+    stageBox.append(note);
+  });
+
+  panel.append(stageBox);
+
+  const body = el('div', 'tour-poster-body');
+  body.append(el('h3', null, ctx.title(entry.item)));
+  const description = ctx.description(entry.item);
+  if (description) body.append(el('p', null, description));
+
+  const meta = el('div', 'tour-poster-meta');
+  meta.append(el('b', null, ctx.priceLabel(entry.item)));
+  const severity = ctx.allergenSeverity(entry.item);
+  const allergens = button(`tour-chip is-allergen is-${severity}`, null, () =>
+    ctx.openAllergens(entry.item)
+  );
+  allergens.append(
+    el(
+      'span',
+      null,
+      severity === 'alert'
+        ? '⛔ Contiene alérgenos'
+        : severity === 'warn'
+          ? '⚠️ Posibles trazas'
+          : 'Ver alérgenos'
+    )
+  );
+  meta.append(allergens);
+  body.append(meta);
+
+  const actions = el('div', 'tour-poster-actions');
+  actions.append(button('tour-btn is-ghost tour-btn-narrow', 'Cerrar', () => overlay.remove()));
+  actions.append(
+    button('tour-btn', '+ Añadir al pedido', () => {
+      ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
+      overlay.remove();
+      refreshTour();
+    })
+  );
+  body.append(actions);
+  body.append(button('tour-poster-more', 'Ver ficha detallada', () => {
+    overlay.remove();
+    ctx.openSheet(entry.item, entry.groupId);
+  }));
+
+  panel.append(body);
+  overlay.append(panel);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) overlay.remove();
+  });
+  document.body.append(overlay);
+  close.focus({ preventScroll: true });
+}
+
+/** Las bebidas no llevan cartel: no aporta nada y alarga el recorrido. */
+function hasPoster(entry) {
+  return entry.kind !== 'bebida';
 }
 
 function renderPhase({ entrance = false } = {}) {
@@ -385,13 +517,8 @@ function renderPhase({ entrance = false } = {}) {
 
 function showScrollHint() {
   if (scrollHintUsed) return;
-  document.querySelector('.tour-scroll-hint')?.remove();
-
-  const hint = el('div', 'tour-scroll-hint');
-  hint.setAttribute('aria-hidden', 'true');
-  hint.append(el('span', 'tour-scroll-arrow', '⌄'));
-  hint.append(el('span', 'tour-scroll-text', 'Desliza para ver más'));
-  document.body.append(hint);
+  const hint = document.querySelector('.tour-scroll-hint');
+  if (!hint) return;
 
   // Al primer desplazamiento desaparece y no vuelve en toda la sesión.
   const dismiss = () => {
@@ -410,7 +537,7 @@ function showScrollHint() {
     window.addEventListener('scroll', dismiss, { passive: true, once: true });
     window.addEventListener('wheel', dismiss, { passive: true, once: true });
     window.addEventListener('touchmove', dismiss, { passive: true, once: true });
-  }, 500);
+  }, 2600);
 }
 
 // ---------------------------------------------------------------------------
@@ -504,13 +631,16 @@ function askWarning(warning, onContinue) {
 // Confirmación de bebidas
 // ---------------------------------------------------------------------------
 
-function confirmDrinks(onDone) {
-  const phase = PHASES[0];
+/**
+ * Confirmación al cerrar una sección: resumen de lo elegido y una caja para
+ * cualquier cosa que la mesa quiera avisar («sin hielo», «sin ketchup»…).
+ */
+function confirmPhase(phase, { title, lead, confirmLabel }, onDone) {
   const chosen = selectedInPhase(phase);
 
   openDialog((panel, close) => {
-    panel.append(el('h3', null, '¿Enviamos estas bebidas?'));
-    panel.append(el('p', null, 'Las bebidas salen antes que la comida, para que no esperéis.'));
+    panel.append(el('h3', null, title));
+    panel.append(el('p', null, lead));
 
     const list = el('div', 'tour-summary');
     chosen.forEach((entry) => {
@@ -528,13 +658,24 @@ function confirmDrinks(onDone) {
     });
     panel.append(list);
 
+    const noteBox = el('div', 'tour-note-box');
+    const label = el('label', 'tour-note-label', '¿Algo que debamos saber?');
+    label.setAttribute('for', `tourNote-${phase.id}`);
+    const note = document.createElement('textarea');
+    note.id = `tourNote-${phase.id}`;
+    note.className = 'tour-note-field';
+    note.placeholder = 'Sin hielo, sin ketchup, poco hecho…';
+    note.value = ctx.phaseNote(phase.id) || '';
+    noteBox.append(label, note);
+    panel.append(noteBox);
+
     const actions = el('div', 'tour-dialog-actions');
     actions.append(button('tour-btn is-ghost', 'Cambiar algo', close));
     actions.append(
-      button('tour-btn', 'Enviar a barra', () => {
+      button('tour-btn', confirmLabel, () => {
+        ctx.setPhaseNote(phase.id, note.value.trim());
         close();
-        ctx.markSent(chosen.map((entry) => entry.item.id));
-        showSentToast(onDone);
+        onDone(chosen);
       })
     );
     panel.append(actions);
@@ -561,6 +702,7 @@ function renderReviewStep() {
   const host = stage();
   host.textContent = '';
   host.className = 'tour-stage';
+  window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
   head.append(el('h2', 'tour-title', 'Revisad el pedido'));
@@ -683,7 +825,7 @@ function renderReviewStep() {
     step = 'phase';
     renderPhase();
   }));
-  bar.append(button('tour-btn', 'Ver los favoritos', () => {
+  bar.append(button('tour-btn', 'Enviar a cocina', () => {
     step = 'populares';
     renderPopular();
   }));
@@ -710,6 +852,7 @@ function renderPopular() {
   const host = stage();
   host.textContent = '';
   host.className = 'tour-stage';
+  window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
   head.append(el('h2', 'tour-title', 'Los favoritos de otras mesas'));
@@ -753,7 +896,11 @@ function renderPopular() {
     card.append(copy);
 
     const actions = el('div', 'tour-podium-actions');
-    actions.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
+    actions.append(
+      hasPoster(entry)
+        ? button('tour-chip is-poster', '👆 ¡Haz Click!', () => openPoster(entry))
+        : button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId))
+    );
     if (quantity > 0) actions.append(renderQuantityRow(entry));
     else
       actions.append(
@@ -790,6 +937,7 @@ function renderFinal() {
   const host = stage();
   host.textContent = '';
   host.className = 'tour-stage';
+  window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
   head.append(el('h2', 'tour-title', 'Todo listo'));
@@ -861,12 +1009,31 @@ function renderSent() {
 function advance({ skipped = false } = {}) {
   const phase = PHASES[stepIndex];
 
+  const goNext = () => {
+    if (stepIndex + 1 < PHASES.length) goToPhase(stepIndex + 1);
+    else {
+      step = 'revision';
+      renderReviewStep();
+    }
+  };
+
   if (phase.id === 'bebidas') {
     if (skipped || countInPhase(phase) === 0) {
       goToPhase(1);
       return;
     }
-    confirmDrinks(() => goToPhase(1));
+    confirmPhase(
+      phase,
+      {
+        title: '¿Enviamos estas bebidas?',
+        lead: 'Las bebidas salen antes que la comida, para que no esperéis.',
+        confirmLabel: 'Enviar a barra'
+      },
+      (chosen) => {
+        ctx.markSent(chosen.map((entry) => entry.item.id));
+        showSentToast(() => goToPhase(1));
+      }
+    );
     return;
   }
 
@@ -876,16 +1043,30 @@ function advance({ skipped = false } = {}) {
       ? starterWarning(phase)
       : mainWarning(phase);
 
-  const next = () => {
-    if (stepIndex + 1 < PHASES.length) goToPhase(stepIndex + 1);
-    else {
-      step = 'revision';
-      renderReviewStep();
+  const confirm = () => {
+    if (skipped || countInPhase(phase) === 0) {
+      goNext();
+      return;
     }
+    confirmPhase(
+      phase,
+      phase.id === 'entrantes'
+        ? {
+            title: '¿Pedimos estos entrantes?',
+            lead: 'Salen a la mesa según se vayan preparando.',
+            confirmLabel: 'Sí, seguir a principales'
+          }
+        : {
+            title: '¿Pedimos estos platos?',
+            lead: 'Después repasaremos el pedido completo.',
+            confirmLabel: 'Sí, revisar el pedido'
+          },
+      goNext
+    );
   };
 
-  if (warning) askWarning(warning, next);
-  else next();
+  if (warning) askWarning(warning, confirm);
+  else confirm();
 }
 
 function goBack() {
@@ -947,6 +1128,7 @@ export function exitTour() {
 export function startGuidedTour() {
   if (!ctx) return;
   active = true;
+  phasePicks = {};
   document.body.classList.add('tour-on');
   const host = stage();
   host.className = 'tour-stage';

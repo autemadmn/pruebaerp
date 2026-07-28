@@ -18,7 +18,8 @@ import {
   pairingHeadings,
   pairingsByKind,
   pairingsByProduct,
-  popularCombos
+  popularCombos,
+  productPosterNotes
 } from './smart-data.js';
 import { currentStageId, initGuidedTour, refreshTour, startGuidedTour } from './guided-tour.js';
 
@@ -2046,6 +2047,17 @@ function buildTourContext() {
         }
       });
       persistCart();
+    },
+    posterNotes: (legacyId) => productPosterNotes[legacyId] || null,
+    // Observaciones que la mesa deja al cerrar cada sección. Se guardan en las
+    // líneas de esa fase para que lleguen con el pedido.
+    phaseNote: (phaseId) => cart.find((line) => (line.stage || 'otros') === phaseId && line.note)?.note || '',
+    setPhaseNote: (phaseId, note) => {
+      cart.forEach((line) => {
+        if ((line.stage || 'otros') === phaseId) line.note = note;
+      });
+      persistCart();
+      renderCart();
     },
     restart: () => openOnboarding(),
     onStart: () => {

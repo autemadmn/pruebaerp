@@ -716,3 +716,60 @@ export const popularCombos = [
     items: ['nachos-verano', 'peperoni', 'papas', 'frappe-chocolate']
   }
 ];
+
+// ---------------------------------------------------------------------------
+// Ficha visual «¡Haz Click!»
+// ---------------------------------------------------------------------------
+// Notas cortas que se dibujan sobre la foto con una flechita, al estilo de un
+// cartel hecho a mano. Solo para entrantes y principales: en las bebidas no
+// aportan nada. Máximo tres por producto; el orden marca dónde se colocan.
+
+export const productPosterNotes = {
+  // --- Aperitivo y picar ---------------------------------------------------
+  'frutos-secos': ['Tostados del día', 'Para abrir boca', 'Sin freír'],
+  papas: ['Bolsa artesana', 'Crujientes', 'Para compartir'],
+  aceitunas: ['Aliñadas en casa', 'Con su punto de hierbas', 'Sin gluten'],
+  'barqueta-mini-fuets': ['Curado artesano', 'Cortado fino', 'Perfecto con cerveza'],
+  'papas-mejillones': ['Mejillones en escabeche', 'Sobre papas crujientes', 'Un clásico de barra'],
+  'papas-boquerones': ['Boquerones en vinagre', 'Papas al momento', 'Fresquito'],
+  'papas-limon-berberechos': ['Berberechos al natural', 'Chorrito de limón', 'Lo más fresco de la casa'],
+
+  // --- Tapas ---------------------------------------------------------------
+  'pulpo-pimenton': ['Pulpo tierno', 'Pimentón de la Vera', 'Patatas a lo pobre debajo'],
+  'ensaladilla-rusa': ['Mayonesa hecha en casa', 'Bonito del norte', 'Se sirve bien fría'],
+  'ajo-arriero': ['Bacalao desmigado', 'Receta tradicional', 'Con pan tostado'],
+  'nachos-verano': ['Queso fundido', 'Guacamole fresco', 'Para picar entre varios'],
+  'nachos-tartar-salmon': ['Tartar de salmón', 'Alga wakame', 'Salsa Tavola'],
+  'tabla-jamon-iberico-duroc': ['Cortado a cuchillo', 'Curación larga', 'Cunde para toda la mesa'],
+  'tabla-quesos-valencianos': ['Quesos de la tierra', 'Tres variedades', 'Con su punto dulce'],
+  'tortilla-jamon': ['Poco cuajada', 'Huevo de corral', 'Jamón en tacos'],
+  'mejillones-vapor-limon': ['Al vapor, sin más', 'Limón recién exprimido', 'Ligero y marinero'],
+
+  // --- Bocadillos ----------------------------------------------------------
+  'bocadillo-escalivada': ['Verduras asadas', 'Pan crujiente', 'Opción vegetariana'],
+  'magro-tomate': ['Magro a la plancha', 'Tomate rallado', 'El de toda la vida'],
+  'lomo-ajos-tiernos': ['Lomo jugoso', 'Ajos tiernos salteados', 'Recién hecho'],
+  'bocadillo-atun-tomate': ['Atún en aceite', 'Tomate natural', 'Sencillo y rico'],
+  'bocadillo-jamon-tomate-rucula': ['Jamón curado', 'Rúcula fresca', 'Pan con tomate'],
+  'bocadillo-lomo-queso': ['Lomo a la plancha', 'Queso fundido', 'Contundente'],
+
+  // --- Pizzas --------------------------------------------------------------
+  margarita: ['Masa madre', 'Mozzarella fresca', 'Albahaca al salir del horno'],
+  tartufata: ['Crema de trufa', 'Jamón y queso', 'Horno de piedra'],
+  'jamon-queso': ['Jamón York', 'Queso fundido', 'La favorita de los peques'],
+  'cuatro-quesos': ['Cuatro quesos', 'Fundido lento', 'Sin carne'],
+  peperoni: ['Peperoni picante', 'Borde crujiente', 'De las más pedidas'],
+  canibal: ['Tres carnes', 'Para los de mucha hambre', 'Horno de piedra'],
+
+  // --- Platos preparados ---------------------------------------------------
+  'ensalada-quinoa': ['Quinoa cocida al punto', 'Verduras frescas', 'La opción ligera'],
+  'costillas-barbacoa': ['Cocción lenta', 'Salsa barbacoa de la casa', 'Se despega del hueso'],
+  'salmon-teriyaki': ['Salmón fresco', 'Glaseado teriyaki', 'Ligero y con sabor'],
+  'pollo-curry': ['Curry suave', 'Con su arroz', 'Nada picante'],
+  'macarrones-bolonesa': ['Boloñesa casera', 'Cocción lenta', 'Plato de siempre'],
+  'paella-valenciana': ['Arroz en su punto', 'Receta valenciana', 'El plato estrella'],
+
+  // --- Desayuno ------------------------------------------------------------
+  'desayuno-tradicional': ['Tostada recién hecha', 'Con café o infusión', 'Para empezar el día'],
+  'desayuno-supreme': ['Tostada de salmón', 'Zumo natural', 'El desayuno completo']
+};
