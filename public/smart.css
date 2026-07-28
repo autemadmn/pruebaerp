@@ -4349,3 +4349,100 @@ a,
     border-radius: 14px;
   }
 }
+
+/* --- La carta libre comparte tarjeta con el recorrido -------------------- */
+
+.dish.tour-item {
+  margin: 0;
+  border: 1px solid var(--line);
+  background: rgba(255, 250, 242, 0.78);
+}
+
+.dish.tour-item + .dish.tour-item {
+  margin-top: 10px;
+}
+
+.dish.tour-item:hover,
+.dish.tour-item:focus-within {
+  border-color: rgba(187, 74, 52, 0.34);
+  background: rgba(255, 253, 248, 0.94);
+  transform: none;
+}
+
+.dish.tour-item.is-static {
+  min-height: 0;
+}
+
+.dish.tour-item.is-static .tour-item-main {
+  min-height: 0;
+}
+
+.dish.tour-item.is-static .tour-copy {
+  margin-left: 0;
+}
+
+.dish.tour-item.is-static .tour-item-foot {
+  padding-left: 12px;
+}
+
+.dish.tour-item .tour-pick.is-static {
+  cursor: default;
+}
+
+/* El botón de alérgenos flota sobre la foto, no en una fila aparte. */
+.tour-badges .allergen-trigger {
+  margin: 0;
+  min-height: 0;
+}
+
+.tour-badges .allergen-trigger img {
+  width: 13px;
+  height: 13px;
+}
+
+/* Mientras entra el título de fase, la barra de acción no debe asomar. */
+body.tour-entering .tour-bar,
+body.tour-entering .language-switcher {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.tour-entrance-backdrop {
+  z-index: 40;
+}
+
+.tour-head.is-entering {
+  z-index: 41;
+}
+
+/* Los dos botones deben caber en una fila también en móvil. */
+.tour-item-foot {
+  flex-wrap: nowrap;
+}
+
+.tour-item .tour-item-foot {
+  padding-left: 34%;
+  gap: 6px;
+}
+
+.tour-item-foot .tour-chip {
+  padding: 8px 11px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .tour-item .tour-item-foot {
+    padding-left: 30%;
+  }
+
+  .tour-item-foot .tour-chip {
+    padding: 8px 10px;
+    font-size: 0.74rem;
+  }
+
+  .tour-badges .allergen-trigger img {
+    display: none;
+  }
+}

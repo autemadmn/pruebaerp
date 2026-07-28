@@ -8,13 +8,13 @@
 // Todas las dependencias (carrito, catálogo, alérgenos, ficha de producto)
 // llegan inyectadas desde smart-menu.js para no duplicar estado.
 
+import { t, tp } from './smart-i18n.js';
+
 let ctx = null;
 
 const PHASES = [
   {
     id: 'bebidas',
-    title: 'Elige tus bebidas',
-    hint: 'Pulsa las bebidas que queráis pedir.',
     groups: [
       'refrescos',
       'cafes',
@@ -28,26 +28,16 @@ const PHASES = [
       'cocteles-clasicos',
       'granizados-smoothies-frappes'
     ],
-    cta: 'Elegir entrantes',
-    skip: 'Seguir sin bebidas',
     highlight: false
   },
   {
     id: 'entrantes',
-    title: 'Elige los entrantes',
-    hint: 'Pulsa los entrantes que queráis pedir.',
     groups: ['picar', 'tapas'],
-    cta: 'Elegir principales',
-    skip: 'Continuar sin entrantes',
     highlight: true
   },
   {
     id: 'principales',
-    title: 'Elige los platos principales',
-    hint: 'Pulsa los platos que queráis pedir.',
     groups: ['desayuno', 'bocadillos', 'pizzas', 'platos'],
-    cta: 'Finalizar pedido',
-    skip: 'Continuar sin principales',
     highlight: true
   }
 ];
@@ -123,18 +113,18 @@ function phasePick(phase) {
     const meta = ctx.productMeta(entry.legacyId);
     const matched = meta.tags.filter((tag) => tags.has(tag));
     let score = meta.popularity * 0.6;
-    let reason = 'De lo más pedido de la carta';
+    let reason = t('reco.reason.top');
 
     if (matched.length) {
       score += 45 + matched.length * 12;
-      reason = `Encaja con lo que os apetece: ${ctx.preferenceLabel(matched[0])}`;
+      reason = t('reco.reason.fits', { tag: ctx.preferenceLabel(matched[0]) });
     } else if (tags.size) {
       score -= 12;
     }
 
     if (people >= 4 && meta.tags.includes('compartir')) {
       score += 24;
-      if (!matched.length) reason = `Cunde bien para ${people} personas`;
+      if (!matched.length) reason = t('reco.reason.share', { n: people });
     }
     if (people <= 2 && meta.tags.includes('compartir') && ctx.basePrice(entry.item) >= 12) score -= 16;
     if (ctx.allergenSeverity(entry.item) === 'warn') score -= 14;
@@ -159,8 +149,12 @@ function phasePick(phase) {
 function playHeaderEntrance(head) {
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
+  // El velo va dentro de .menu-shell: esa capa crea su propio contexto de
+  // apilamiento (z-index 1), así que un velo colgado del body taparía la
+  // cabecera por mucho z-index que se le pusiera.
   const backdrop = el('div', 'tour-entrance-backdrop');
-  document.body.append(backdrop);
+  (head.closest('.menu-shell') || document.body).append(backdrop);
+  document.body.classList.add('tour-entering');
 
   const rect = head.getBoundingClientRect();
   const targetCenterX = rect.left + rect.width / 2;
@@ -188,6 +182,7 @@ function playHeaderEntrance(head) {
     head.style.transition = '';
     head.style.transform = '';
     backdrop.remove();
+    document.body.classList.remove('tour-entering');
   }, HOLD + TRAVEL + 60);
 }
 
@@ -207,26 +202,26 @@ function renderHeader(phase, { withStep = true } = {}) {
   }
 
   head.append(el('p', 'tour-wordmark', 'Tavola'));
-  head.append(el('h2', 'tour-title', phase.title));
+  head.append(el('h2', 'tour-title', t(`tour.phase.${phase.id}.title`)));
 
   const hintRow = el('div', 'tour-hint-row');
-  hintRow.append(el('p', 'tour-hint', phase.hint));
+  hintRow.append(el('p', 'tour-hint', t(`tour.phase.${phase.id}.hint`)));
   // La ayuda de deslizar va junto al título: es lo primero que se lee.
   if (!scrollHintUsed) {
     const nudge = el('span', 'tour-scroll-hint');
     nudge.setAttribute('aria-hidden', 'true');
     nudge.append(el('span', 'tour-scroll-arrow', '⌄'));
-    nudge.append(el('span', 'tour-scroll-text', 'Desliza para ver más'));
+    nudge.append(el('span', 'tour-scroll-text', t('tour.scrollHint')));
     hintRow.append(nudge);
   }
   head.append(hintRow);
 
   const tools = el('div', 'tour-head-tools');
   if (stepIndex > 0 || step !== 'phase') {
-    tools.append(button('tour-link', '← Atrás', goBack));
+    tools.append(button('tour-link', t('tour.back'), goBack));
   }
   tools.append(el('span', 'tour-spacer'));
-  tools.append(button('tour-link is-quiet', 'Ver la carta completa', exitTour));
+  tools.append(button('tour-link is-quiet', t('tour.fullMenu'), exitTour));
   head.append(tools);
 
   return head;
@@ -241,7 +236,7 @@ function renderQuantityRow(entry) {
     ctx.setQuantity(entry, Math.max(0, ctx.quantityOf(entry.item.id) - 1));
     refreshTour();
   });
-  minus.setAttribute('aria-label', `Quitar una unidad de ${ctx.title(entry.item)}`);
+  minus.setAttribute('aria-label', t('tour.minus', { name: ctx.title(entry.item) }));
 
   const output = document.createElement('output');
   output.textContent = String(quantity);
@@ -251,7 +246,7 @@ function renderQuantityRow(entry) {
     ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
     refreshTour();
   });
-  plus.setAttribute('aria-label', `Añadir una unidad de ${ctx.title(entry.item)}`);
+  plus.setAttribute('aria-label', t('tour.plus', { name: ctx.title(entry.item) }));
 
   row.append(minus, output, plus);
   return row;
@@ -277,7 +272,7 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
   card.append(thumb);
 
   const badges = el('div', 'tour-badges');
-  if (featured) badges.append(el('span', 'tour-badge-glass is-featured', '★ Recomendado'));
+  if (featured) badges.append(el('span', 'tour-badge-glass is-featured', `★ ${t('tour.featured')}`));
 
   const severity = ctx.allergenSeverity(entry.item);
   const allergens = button(`tour-badge-glass is-allergen is-${severity}`, null, (event) => {
@@ -288,11 +283,7 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
     el(
       'span',
       null,
-      severity === 'alert'
-        ? '⛔ Contiene alérgenos'
-        : severity === 'warn'
-          ? '⚠️ Posibles trazas'
-          : 'Ver alérgenos'
+      severity === 'alert' ? t('al.containsShort') : severity === 'warn' ? t('al.tracesShort') : t('al.view')
     )
   );
   badges.append(allergens);
@@ -306,10 +297,13 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
     ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
     renderPhase();
   });
-  pick.setAttribute('aria-label', `Añadir ${ctx.title(entry.item)}, ${ctx.priceLabel(entry.item)}`);
+  pick.setAttribute(
+    'aria-label',
+    t('tour.addAria', { name: ctx.title(entry.item), price: ctx.priceLabel(entry.item) })
+  );
 
+  // El distintivo sobre la foto ya dice que es el recomendado: no se repite.
   const copy = el('span', 'tour-copy');
-  if (featured) copy.append(el('span', 'tour-featured-label', 'El que mejor encaja con vuestra mesa'));
   copy.append(el('strong', null, ctx.title(entry.item)));
   const description = ctx.description(entry.item);
   if (description) copy.append(el('small', null, description));
@@ -326,9 +320,9 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
 
   const foot = el('div', 'tour-item-foot');
   if (hasPoster(entry)) {
-    foot.append(button('tour-chip is-poster', '👆 ¡Haz Click!', () => openPoster(entry)));
+    foot.append(button('tour-chip is-poster', t('tour.click'), () => openPoster(entry)));
   } else {
-    foot.append(button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId)));
+    foot.append(button('tour-chip', t('tour.viewSheet'), () => ctx.openSheet(entry.item, entry.groupId)));
   }
   foot.append(el('span', 'tour-spacer'));
 
@@ -336,7 +330,7 @@ function renderItem(entry, phase, { featured = false, reason = '' } = {}) {
     foot.append(renderQuantityRow(entry));
   } else {
     foot.append(
-      button('tour-chip is-add', '+ Añadir', () => {
+      button('tour-chip is-add', t('tour.add'), () => {
         ctx.setQuantity(entry, 1);
         renderPhase();
       })
@@ -367,10 +361,10 @@ function posterNotesFor(entry) {
   // Respaldo por si algún producto aún no tiene notas escritas.
   const meta = ctx.productMeta(entry.legacyId);
   const notes = [];
-  if (meta.popularity >= 85) notes.push('De los más pedidos');
-  if (meta.tags.includes('compartir')) notes.push('Para compartir');
-  if (meta.tags.includes('ligero')) notes.push('Opción ligera');
-  if (meta.tags.includes('vegetariano')) notes.push('Sin carne ni pescado');
+  if (meta.popularity >= 85) notes.push(t('poster.popular'));
+  if (meta.tags.includes('compartir')) notes.push(t('poster.share'));
+  if (meta.tags.includes('ligero')) notes.push(t('poster.light'));
+  if (meta.tags.includes('vegetariano')) notes.push(t('poster.veggie'));
   return notes.slice(0, 3);
 }
 
@@ -381,7 +375,7 @@ function openPoster(entry) {
   panel.setAttribute('aria-modal', 'true');
 
   const close = button('tour-poster-close', '×', () => overlay.remove());
-  close.setAttribute('aria-label', 'Cerrar');
+  close.setAttribute('aria-label', t('poster.close'));
   panel.append(close);
 
   const stageBox = el('div', 'tour-poster-stage');
@@ -417,30 +411,22 @@ function openPoster(entry) {
     el(
       'span',
       null,
-      severity === 'alert'
-        ? '⛔ Contiene alérgenos'
-        : severity === 'warn'
-          ? '⚠️ Posibles trazas'
-          : 'Ver alérgenos'
+      severity === 'alert' ? t('al.containsShort') : severity === 'warn' ? t('al.tracesShort') : t('al.view')
     )
   );
   meta.append(allergens);
   body.append(meta);
 
   const actions = el('div', 'tour-poster-actions');
-  actions.append(button('tour-btn is-ghost tour-btn-narrow', 'Cerrar', () => overlay.remove()));
+  actions.append(button('tour-btn is-ghost tour-btn-narrow', t('poster.close'), () => overlay.remove()));
   actions.append(
-    button('tour-btn', '+ Añadir al pedido', () => {
+    button('tour-btn', t('poster.add'), () => {
       ctx.setQuantity(entry, ctx.quantityOf(entry.item.id) + 1);
       overlay.remove();
       refreshTour();
     })
   );
   body.append(actions);
-  body.append(button('tour-poster-more', 'Ver ficha detallada', () => {
-    overlay.remove();
-    ctx.openSheet(entry.item, entry.groupId);
-  }));
 
   panel.append(body);
   overlay.append(panel);
@@ -452,9 +438,11 @@ function openPoster(entry) {
 }
 
 /** Las bebidas no llevan cartel: no aporta nada y alarga el recorrido. */
-function hasPoster(entry) {
-  return entry.kind !== 'bebida';
+export function hasPoster(entry) {
+  return entry?.kind !== 'bebida';
 }
+
+export { openPoster };
 
 function renderPhase({ entrance = false } = {}) {
   const phase = PHASES[stepIndex];
@@ -489,15 +477,17 @@ function renderPhase({ entrance = false } = {}) {
   const count = countInPhase(phase);
 
   if (count === 0) {
-    bar.append(button('tour-btn is-ghost', phase.skip, () => advance({ skipped: true })));
+    bar.append(
+      button('tour-btn is-ghost', t(`tour.phase.${phase.id}.skip`), () => advance({ skipped: true }))
+    );
   } else {
     bar.append(
-      button('tour-btn is-ghost tour-btn-narrow', 'Saltar', () => advance({ skipped: true }))
+      button('tour-btn is-ghost tour-btn-narrow', t('tour.skipShort'), () => advance({ skipped: true }))
     );
   }
 
   const cta = button('tour-btn', null, () => advance({}));
-  cta.append(el('span', null, phase.cta));
+  cta.append(el('span', null, t(`tour.phase.${phase.id}.cta`)));
   if (count > 0) cta.append(el('span', 'tour-badge', String(count)));
   cta.disabled = false;
   bar.append(cta);
@@ -587,10 +577,14 @@ function starterWarning(phase) {
 
   const units = chosen.reduce((total, entry) => total + ctx.quantityOf(entry.item.id), 0);
   return {
-    title: 'Una comprobación rápida',
-    body: `Sois ${people} ${people === 1 ? 'persona' : 'personas'} y habéis elegido ${units} ${units === 1 ? 'entrante' : 'entrantes'}. Una mesa de ${people} suele elegir alguno más. ¿Queréis continuar?`,
-    ok: 'Sí, continuar',
-    more: 'Ver más entrantes'
+    title: t('tour.checkTitle'),
+    body: t('tour.starterWarn', {
+      people: tp('tour.people', people),
+      units: tp('tour.units.starter', units),
+      n: people
+    }),
+    ok: t('tour.starterOk'),
+    more: t('tour.starterMore')
   };
 }
 
@@ -600,10 +594,13 @@ function mainWarning(phase) {
   if (!units || units >= people) return null;
 
   return {
-    title: 'Una comprobación rápida',
-    body: `Hay ${units} ${units === 1 ? 'plato principal' : 'platos principales'} para ${people} ${people === 1 ? 'persona' : 'personas'}. ¿Es correcto o queréis añadir otro?`,
-    ok: 'Está bien',
-    more: 'Añadir otro principal'
+    title: t('tour.checkTitle'),
+    body: t('tour.mainWarn', {
+      units: tp('tour.units.main', units),
+      people: tp('tour.people', people)
+    }),
+    ok: t('tour.mainOk'),
+    more: t('tour.mainMore')
   };
 }
 
@@ -659,18 +656,18 @@ function confirmPhase(phase, { title, lead, confirmLabel }, onDone) {
     panel.append(list);
 
     const noteBox = el('div', 'tour-note-box');
-    const label = el('label', 'tour-note-label', '¿Algo que debamos saber?');
+    const label = el('label', 'tour-note-label', t('tour.noteLabel'));
     label.setAttribute('for', `tourNote-${phase.id}`);
     const note = document.createElement('textarea');
     note.id = `tourNote-${phase.id}`;
     note.className = 'tour-note-field';
-    note.placeholder = 'Sin hielo, sin ketchup, poco hecho…';
+    note.placeholder = t('tour.notePlaceholder');
     note.value = ctx.phaseNote(phase.id) || '';
     noteBox.append(label, note);
     panel.append(noteBox);
 
     const actions = el('div', 'tour-dialog-actions');
-    actions.append(button('tour-btn is-ghost', 'Cambiar algo', close));
+    actions.append(button('tour-btn is-ghost', t('tour.confirm.change'), close));
     actions.append(
       button('tour-btn', confirmLabel, () => {
         ctx.setPhaseNote(phase.id, note.value.trim());
@@ -685,8 +682,8 @@ function confirmPhase(phase, { title, lead, confirmLabel }, onDone) {
 function showSentToast(onDone) {
   const overlay = el('div', 'tour-sent');
   const mark = el('div', 'tour-sent-mark', '✓');
-  overlay.append(mark, el('h2', null, 'Bebidas enviadas a barra'));
-  overlay.append(el('p', null, 'Seguimos con la comida.'));
+  overlay.append(mark, el('h2', null, t('tour.sentTitle')));
+  overlay.append(el('p', null, t('tour.sentCopy')));
   document.body.append(overlay);
   window.setTimeout(() => {
     overlay.remove();
@@ -705,12 +702,13 @@ function renderReviewStep() {
   window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
-  head.append(el('h2', 'tour-title', 'Revisad el pedido'));
-  head.append(el('p', 'tour-hint', 'Cambiad cantidades o quitad lo que no queráis.'));
+  head.append(el('p', 'tour-wordmark', 'Tavola'));
+  head.append(el('h2', 'tour-title', t('tour.review.title')));
+  head.append(el('p', 'tour-hint', t('tour.review.hint')));
   const tools = el('div', 'tour-head-tools');
-  tools.append(button('tour-link', '← Atrás', goBack));
+  tools.append(button('tour-link', t('tour.back'), goBack));
   tools.append(el('span', 'tour-spacer'));
-  tools.append(button('tour-link is-quiet', 'Ver la carta completa', exitTour));
+  tools.append(button('tour-link is-quiet', t('tour.fullMenu'), exitTour));
   head.append(tools);
   host.append(head);
 
@@ -718,14 +716,14 @@ function renderReviewStep() {
   const lines = ctx.cartLines();
 
   if (!lines.length) {
-    body.append(el('p', 'tour-empty', 'Todavía no habéis elegido nada.'));
+    body.append(el('p', 'tour-empty', t('tour.review.empty')));
   }
 
   const groups = [
-    { id: 'bebidas', label: 'Bebidas · ya enviadas a barra', sent: true },
-    { id: 'entrantes', label: 'Entrantes', sent: false },
-    { id: 'principales', label: 'Platos principales', sent: false },
-    { id: 'otros', label: 'Otros productos', sent: false }
+    { id: 'bebidas', label: t('tour.review.drinks'), sent: true },
+    { id: 'entrantes', label: t('tour.review.starters'), sent: false },
+    { id: 'principales', label: t('tour.review.mains'), sent: false },
+    { id: 'otros', label: t('tour.review.other'), sent: false }
   ];
 
   groups.forEach((group) => {
@@ -761,8 +759,8 @@ function renderReviewStep() {
             'span',
             `tour-flag is-${severity}`,
             severity === 'alert'
-              ? `⛔ Contiene ${matched.contains.join(', ')}`
-              : `⚠️ Posibles trazas${matched.traces.length ? ` de ${matched.traces.join(', ')}` : ''}`
+              ? `⛔ ${t('al.contains')} ${matched.contains.join(', ')}`
+              : `⚠️ ${t('al.tracesShort').replace('⚠️ ', '')}${matched.traces.length ? `: ${matched.traces.join(', ')}` : ''}`
           )
         );
       }
@@ -772,25 +770,25 @@ function renderReviewStep() {
       side.append(el('b', null, ctx.formatPrice(line.unitPrice * line.quantity)));
 
       if (group.sent) {
-        side.append(el('span', 'tour-sent-tag', `${line.quantity}× enviada`));
+        side.append(el('span', 'tour-sent-tag', t('tour.review.sentTag', { n: line.quantity })));
       } else {
         const qty = el('div', 'tour-qty');
         const minus = button('', '−', () => {
           ctx.changeLine(line.key, -1);
           renderReviewStep();
         });
-        minus.setAttribute('aria-label', `Quitar una unidad de ${ctx.title(entry.item)}`);
+        minus.setAttribute('aria-label', t('tour.minus', { name: ctx.title(entry.item) }));
         const output = document.createElement('output');
         output.textContent = String(line.quantity);
         const plus = button('', '+', () => {
           ctx.changeLine(line.key, 1);
           renderReviewStep();
         });
-        plus.setAttribute('aria-label', `Añadir una unidad de ${ctx.title(entry.item)}`);
+        plus.setAttribute('aria-label', t('tour.plus', { name: ctx.title(entry.item) }));
         qty.append(minus, output, plus);
         side.append(qty);
 
-        const remove = button('tour-chip is-remove', 'Quitar', () => {
+        const remove = button('tour-chip is-remove', t('tour.remove'), () => {
           ctx.removeLine(line.key);
           renderReviewStep();
         });
@@ -806,26 +804,30 @@ function renderReviewStep() {
 
   const facts = el('div', 'tour-review-facts');
   const people = ctx.peopleCount();
-  facts.append(el('span', 'tour-fact', `👥 ${people} ${people === 1 ? 'persona' : 'personas'}`));
+  facts.append(el('span', 'tour-fact', tp('fact.people', people)));
   const allergens = ctx.allergenLabels();
   facts.append(
-    el('span', allergens.length ? 'tour-fact is-alert' : 'tour-fact', allergens.length ? `⛔ ${allergens.join(', ')}` : '✓ Sin alergias indicadas')
+    el(
+      'span',
+      allergens.length ? 'tour-fact is-alert' : 'tour-fact',
+      allergens.length ? `⛔ ${allergens.join(', ')}` : t('fact.noAllergies')
+    )
   );
   body.append(facts);
 
   const total = el('div', 'tour-total');
-  total.append(el('span', null, 'Total'), el('b', null, ctx.formatPrice(ctx.cartTotal())));
+  total.append(el('span', null, t('cart.total')), el('b', null, ctx.formatPrice(ctx.cartTotal())));
   body.append(total);
 
   host.append(body);
 
   const bar = el('div', 'tour-bar');
-  bar.append(button('tour-btn is-ghost tour-btn-narrow', 'Añadir más', () => {
+  bar.append(button('tour-btn is-ghost tour-btn-narrow', t('tour.review.addMore'), () => {
     stepIndex = PHASES.length - 1;
     step = 'phase';
     renderPhase();
   }));
-  bar.append(button('tour-btn', 'Enviar a cocina', () => {
+  bar.append(button('tour-btn', t('tour.review.next'), () => {
     step = 'populares';
     renderPopular();
   }));
@@ -855,15 +857,16 @@ function renderPopular() {
   window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
-  head.append(el('h2', 'tour-title', 'Los favoritos de otras mesas'));
-  head.append(el('p', 'tour-hint', 'Añadid algo si os apetece. También podéis seguir sin añadir nada.'));
+  head.append(el('p', 'tour-wordmark', 'Tavola'));
+  head.append(el('h2', 'tour-title', t('tour.top.title')));
+  head.append(el('p', 'tour-hint', t('tour.top.hint')));
   const tools = el('div', 'tour-head-tools');
-  tools.append(button('tour-link', '← Atrás', () => {
+  tools.append(button('tour-link', t('tour.back'), () => {
     step = 'revision';
     renderReviewStep();
   }));
   tools.append(el('span', 'tour-spacer'));
-  tools.append(button('tour-link is-quiet', 'Ver la carta completa', exitTour));
+  tools.append(button('tour-link is-quiet', t('tour.fullMenu'), exitTour));
   head.append(tools);
   host.append(head);
 
@@ -890,7 +893,9 @@ function renderPopular() {
     card.append(media);
 
     const copy = el('div', 'tour-podium-copy');
-    copy.append(el('span', 'tour-podium-label', index === 0 ? 'El más pedido' : `Nº${index + 1} en pedidos`));
+    copy.append(
+      el('span', 'tour-podium-label', index === 0 ? t('tour.top.first') : t('tour.top.rank', { n: index + 1 }))
+    );
     copy.append(el('strong', null, ctx.title(entry.item)));
     copy.append(el('b', null, ctx.priceLabel(entry.item)));
     card.append(copy);
@@ -898,13 +903,13 @@ function renderPopular() {
     const actions = el('div', 'tour-podium-actions');
     actions.append(
       hasPoster(entry)
-        ? button('tour-chip is-poster', '👆 ¡Haz Click!', () => openPoster(entry))
-        : button('tour-chip', 'Ver ficha', () => ctx.openSheet(entry.item, entry.groupId))
+        ? button('tour-chip is-poster', t('tour.click'), () => openPoster(entry))
+        : button('tour-chip', t('tour.viewSheet'), () => ctx.openSheet(entry.item, entry.groupId))
     );
     if (quantity > 0) actions.append(renderQuantityRow(entry));
     else
       actions.append(
-        button('tour-chip is-add', '+ Añadir', () => {
+        button('tour-chip is-add', t('tour.add'), () => {
           ctx.setQuantity(entry, 1);
           renderPopular();
         })
@@ -919,13 +924,13 @@ function renderPopular() {
 
   const bar = el('div', 'tour-bar');
   bar.append(
-    button('tour-btn is-ghost tour-btn-narrow', 'Sin añadir', () => {
+    button('tour-btn is-ghost tour-btn-narrow', t('tour.top.skip'), () => {
       step = 'final';
       renderFinal();
     })
   );
   bar.append(
-    button('tour-btn', 'Revisar y enviar', () => {
+    button('tour-btn', t('tour.top.next'), () => {
       step = 'final';
       renderFinal();
     })
@@ -940,15 +945,16 @@ function renderFinal() {
   window.scrollTo({ top: 0, behavior: 'auto' });
 
   const head = el('header', 'tour-head');
-  head.append(el('h2', 'tour-title', 'Todo listo'));
-  head.append(el('p', 'tour-hint', 'Este es vuestro pedido completo.'));
+  head.append(el('p', 'tour-wordmark', 'Tavola'));
+  head.append(el('h2', 'tour-title', t('tour.final.title')));
+  head.append(el('p', 'tour-hint', t('tour.final.hint')));
   const tools = el('div', 'tour-head-tools');
-  tools.append(button('tour-link', '← Atrás', () => {
+  tools.append(button('tour-link', t('tour.back'), () => {
     step = 'populares';
     renderPopular();
   }));
   tools.append(el('span', 'tour-spacer'));
-  tools.append(button('tour-link is-quiet', 'Ver la carta completa', exitTour));
+  tools.append(button('tour-link is-quiet', t('tour.fullMenu'), exitTour));
   head.append(tools);
   host.append(head);
 
@@ -961,7 +967,7 @@ function renderFinal() {
     row.append(el('span', 'tour-summary-qty', `${line.quantity}×`));
     const name = el('span', 'tour-summary-name');
     name.append(el('span', null, ctx.title(entry.item)));
-    if (line.stage === 'bebidas') name.append(el('span', 'tour-sent-tag', 'ya en barra'));
+    if (line.stage === 'bebidas') name.append(el('span', 'tour-sent-tag', t('tour.final.alreadySent')));
     row.append(name);
     row.append(el('span', 'tour-summary-amount', ctx.formatPrice(line.unitPrice * line.quantity)));
     block.append(row);
@@ -969,12 +975,12 @@ function renderFinal() {
   body.append(block);
 
   const total = el('div', 'tour-total');
-  total.append(el('span', null, 'Total'), el('b', null, ctx.formatPrice(ctx.cartTotal())));
+  total.append(el('span', null, t('cart.total')), el('b', null, ctx.formatPrice(ctx.cartTotal())));
   body.append(total);
   host.append(body);
 
   const bar = el('div', 'tour-bar');
-  const send = button('tour-btn is-wide', 'Enviar pedido', () => renderSent());
+  const send = button('tour-btn is-wide', t('tour.final.send'), () => renderSent());
   send.disabled = ctx.cartLines().length === 0;
   bar.append(send);
   host.append(bar);
@@ -987,13 +993,13 @@ function renderSent() {
 
   const done = el('div', 'tour-done');
   done.append(el('div', 'tour-sent-mark', '✓'));
-  done.append(el('h2', null, 'Pedido enviado'));
-  done.append(el('p', null, 'La cocina ha recibido vuestra selección.'));
-  done.append(el('p', 'tour-note', 'Demostración: no se ha enviado ningún pedido real.'));
+  done.append(el('h2', null, t('tour.done.title')));
+  done.append(el('p', null, t('tour.done.copy')));
+  done.append(el('p', 'tour-note', t('tour.done.demo')));
 
   const actions = el('div', 'tour-done-actions');
-  actions.append(button('tour-btn is-ghost', 'Ver la carta', exitTour));
-  actions.append(button('tour-btn', 'Empezar otra demostración', () => {
+  actions.append(button('tour-btn is-ghost', t('tour.done.menu'), exitTour));
+  actions.append(button('tour-btn', t('tour.done.restart'), () => {
     ctx.clearCart();
     exitTour();
     ctx.restart();
@@ -1025,9 +1031,9 @@ function advance({ skipped = false } = {}) {
     confirmPhase(
       phase,
       {
-        title: '¿Enviamos estas bebidas?',
-        lead: 'Las bebidas salen antes que la comida, para que no esperéis.',
-        confirmLabel: 'Enviar a barra'
+        title: t('tour.confirm.drinks.title'),
+        lead: t('tour.confirm.drinks.lead'),
+        confirmLabel: t('tour.confirm.drinks.ok')
       },
       (chosen) => {
         ctx.markSent(chosen.map((entry) => entry.item.id));
@@ -1052,14 +1058,14 @@ function advance({ skipped = false } = {}) {
       phase,
       phase.id === 'entrantes'
         ? {
-            title: '¿Pedimos estos entrantes?',
-            lead: 'Salen a la mesa según se vayan preparando.',
-            confirmLabel: 'Sí, seguir a principales'
+            title: t('tour.confirm.starters.title'),
+            lead: t('tour.confirm.starters.lead'),
+            confirmLabel: t('tour.confirm.starters.ok')
           }
         : {
-            title: '¿Pedimos estos platos?',
-            lead: 'Después repasaremos el pedido completo.',
-            confirmLabel: 'Sí, revisar el pedido'
+            title: t('tour.confirm.mains.title'),
+            lead: t('tour.confirm.mains.lead'),
+            confirmLabel: t('tour.confirm.mains.ok')
           },
       goNext
     );

@@ -22,6 +22,7 @@ import {
   productPosterNotes
 } from './smart-data.js';
 import { currentStageId, initGuidedTour, refreshTour, startGuidedTour } from './guided-tour.js';
+import { allergenLabel, appetiteLabel, preferenceLabel, setSmartLocale, t, tagLabel, tp } from './smart-i18n.js';
 
 const TABLE_STORAGE_KEY = 'tavolaSmartTable';
 const CART_STORAGE_KEY = 'tavolaSmartCart';
@@ -206,22 +207,23 @@ export function buildAllergenBanner(item) {
   banner.className = severity === 'alert' ? 'smart-allergen-banner' : 'smart-allergen-banner is-warn';
 
   if (severity === 'alert') {
-    title.textContent = '⛔ Contiene alérgenos marcados en vuestra mesa';
-    copy.textContent = `Coincide con: ${matched.contains.join(', ')}.`;
+    title.textContent = t('al.alertTitle');
+    copy.textContent = t('al.alertBody', { list: matched.contains.map(allergenLabel).join(', ') });
   } else {
-    title.textContent = '⚠️ Riesgo de trazas o contaminación cruzada';
+    title.textContent = t('al.warnTitle');
     copy.textContent = matched.traces.length
-      ? `Puede contener trazas de: ${matched.traces.join(', ')}. Consulta al personal antes de pedirlo.`
-      : 'Depende de la preparación concreta. Consulta al personal antes de pedirlo.';
+      ? t('al.warnBody', { list: matched.traces.map(allergenLabel).join(', ') })
+      : t('al.warnBodyGeneric');
   }
 
   banner.append(title, copy);
   return banner;
 }
 
+// Se guardan las claves, no el texto: el idioma se resuelve al pintar.
 const severityCopy = {
-  alert: { label: 'Contiene', icon: '⛔' },
-  warn: { label: 'Trazas', icon: '⚠️' }
+  alert: { key: 'al.contains', icon: '⛔' },
+  warn: { key: 'al.traces', icon: '⚠️' }
 };
 
 // Línea de alérgenos escrita, con los que coinciden con la mesa destacados.
@@ -230,10 +232,10 @@ function allergenLine(label, labels, variant) {
   line.append(el('span', 'smart-allergen-label', label));
   const list = el('span', 'smart-allergen-values');
   labels.forEach((name) => {
-    const chip = el('span', 'smart-allergen-chip', name);
+    const chip = el('span', 'smart-allergen-chip', allergenLabel(name));
     if (isSelectedAllergenLabel(name)) {
       chip.classList.add('is-match');
-      chip.textContent = `⛔ ${name}`;
+      chip.textContent = `⛔ ${allergenLabel(name)}`;
     }
     list.append(chip);
   });
@@ -246,7 +248,7 @@ function createSeverityFlag(severity, className = 'smart-item-flag') {
   if (!copy) return null;
   const flag = document.createElement('span');
   flag.className = `${className} is-${severity}`;
-  flag.textContent = `${copy.icon} ${copy.label}`;
+  flag.textContent = `${copy.icon} ${t(copy.key)}`;
   return flag;
 }
 
@@ -260,11 +262,11 @@ export function decorateAllergenTrigger(button, item) {
   button.classList.add(`is-${severity}`);
   const flag = document.createElement('span');
   flag.className = 'smart-flag';
-  flag.textContent = severity === 'alert' ? '⛔ Contiene' : '⚠️ Trazas';
+  flag.textContent = severity === 'alert' ? `⛔ ${t('al.contains')}` : `⚠️ ${t('al.traces')}`;
   button.append(flag);
   button.setAttribute(
     'aria-label',
-    `${severity === 'alert' ? 'Atención, contiene alérgenos de la mesa.' : 'Atención, posibles trazas.'} Ver alérgenos de ${itemTitle(item)}`
+    `${severity === 'alert' ? t('al.containsShort') : t('al.tracesShort')} · ${t('al.view')}: ${itemTitle(item)}`
   );
 }
 
@@ -480,18 +482,18 @@ function buildInitialRecommendations() {
     const meta = getProductMeta(entry.legacyId);
     const matched = meta.tags.filter((tag) => tags.has(tag));
     let score = meta.popularity * 0.6;
-    let reason = 'De lo más pedido';
+    let reason = t('reco.reason.popular');
 
     if (matched.length) {
       score += 45 + matched.length * 12;
-      reason = `Porque os apetece ${(TAG_LABELS[matched[0]] || matched[0]).toLowerCase()}`;
+      reason = t('reco.reason.taste', { tag: tagLabel(matched[0], TAG_LABELS[matched[0]]).toLowerCase() });
     } else if (tags.size) {
       score -= 15;
     }
 
     if (people >= 4 && meta.tags.includes('compartir')) {
       score += 26;
-      if (!matched.length) reason = `Va bien para ${people} personas`;
+      if (!matched.length) reason = t('reco.reason.people', { n: people });
     }
     if (people <= 2 && meta.tags.includes('compartir') && basePrice(entry.item) >= 12) {
       score -= 18;
@@ -552,27 +554,19 @@ function buildPairings(entry) {
   return results;
 }
 
-const KIND_LABELS = {
-  entrante: 'Entrante o tapa para abrir boca.',
-  principal: 'Plato principal.',
-  acompanamiento: 'Acompañamiento: se pide junto a otro plato.',
-  dulce: 'Dulce y frío, ideal para terminar.',
-  bebida: 'Bebida.'
-};
-
 // La popularidad es un dato simulado para la demostración.
 function popularityCopy(popularity) {
-  if (popularity >= 85) return 'Uno de los más pedidos de la carta.';
-  if (popularity >= 70) return 'Muy pedido por nuestros clientes.';
-  if (popularity >= 55) return 'Una opción habitual en las mesas.';
-  return 'Una elección poco habitual, para salirse de lo típico.';
+  if (popularity >= 85) return t('pop.top');
+  if (popularity >= 70) return t('pop.high');
+  if (popularity >= 55) return t('pop.mid');
+  return t('pop.low');
 }
 
 function recommendationReasonForPairing(entry, sourceEntry) {
-  if (sourceEntry.kind === 'principal' && entry.kind === 'acompanamiento') return 'Acompañamiento habitual';
-  if (entry.kind === 'dulce') return 'Para terminar';
-  if (getProductMeta(entry.legacyId).tags.includes('compartir')) return 'Para compartir';
-  return 'Se pide junto a este plato';
+  if (sourceEntry.kind === 'principal' && entry.kind === 'acompanamiento') return t('pair.side');
+  if (entry.kind === 'dulce') return t('pair.dessert');
+  if (getProductMeta(entry.legacyId).tags.includes('compartir')) return t('pair.share');
+  return t('pair.with');
 }
 
 // ---------------------------------------------------------------------------
@@ -682,23 +676,23 @@ function renderOnboarding() {
 
   if (onboardingStep === 'intro') {
     panel.append(el('p', 'smart-wordmark', 'Tavola'));
-    panel.append(el('p', 'smart-onboarding-eyebrow', 'Bienvenidos'));
-    panel.append(el('h2', null, 'Preparamos la carta a vuestra medida'));
+    panel.append(el('p', 'smart-onboarding-eyebrow', t('ob.welcome.eyebrow')));
+    panel.append(el('h2', null, t('ob.welcome.title')));
     panel.append(
       el(
         'p',
         'smart-onboarding-copy',
-        'Tres preguntas rápidas y os enseñamos lo que mejor encaja con vuestra mesa. Podéis cambiarlo cuando queráis.'
+        t('ob.welcome.copy')
       )
     );
-    actions.append(button('smart-btn is-quiet', 'Ir directo a la carta', () => {
+    actions.append(button('smart-btn is-quiet', t('ob.welcome.skip'), () => {
       table = { ...defaultTable, configured: true, people: 2 };
       persistTable();
       closeOnboarding();
       refreshAll();
     }));
     actions.append(el('span', 'smart-spacer'));
-    actions.append(button('smart-btn', 'Empezar', () => {
+    actions.append(button('smart-btn', t('ob.welcome.start'), () => {
       onboardingStep = 'allergies';
       renderOnboarding();
     }));
@@ -709,10 +703,10 @@ function renderOnboarding() {
   }
 
   if (onboardingStep === 'allergies') {
-    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 1 de 3'));
-    panel.append(el('h2', null, '¿Hay alergias o intolerancias en la mesa?'));
+    panel.append(el('p', 'smart-onboarding-eyebrow', t('ob.step', { n: 1 })));
+    panel.append(el('h2', null, t('ob.allergies.title')));
     panel.append(
-      el('p', 'smart-onboarding-copy', 'Seguiréis viendo la carta completa. Solo marcaremos los platos que debáis mirar con lupa.')
+      el('p', 'smart-onboarding-copy', t('ob.allergies.copy'))
     );
 
     const choice = el('div', 'smart-yesno');
@@ -721,20 +715,20 @@ function renderOnboarding() {
       onboardingStep = 'allergen-pick';
       renderOnboarding();
     });
-    yes.append(el('strong', null, 'Sí'), el('small', null, 'Nos avisáis de los platos con riesgo'));
+    yes.append(el('strong', null, t('ob.allergies.yes')), el('small', null, t('ob.allergies.yesHint')));
     const no = button('', '', () => {
       draft.hasAllergies = false;
       draft.allergens = [];
       onboardingStep = 'people';
       renderOnboarding();
     });
-    no.append(el('strong', null, 'No'), el('small', null, 'Ninguna alergia ni intolerancia'));
+    no.append(el('strong', null, t('ob.allergies.no')), el('small', null, t('ob.allergies.noHint')));
     choice.append(yes, no);
     body.append(choice);
 
     panel.append(body);
     actions.append(el('span', 'smart-spacer'));
-    actions.append(button('smart-btn is-quiet', 'Saltar', () => {
+    actions.append(button('smart-btn is-quiet', t('ob.skip'), () => {
       draft.hasAllergies = false;
       draft.allergens = [];
       onboardingStep = 'people';
@@ -747,9 +741,9 @@ function renderOnboarding() {
   }
 
   if (onboardingStep === 'allergen-pick') {
-    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 1 de 3'));
-    panel.append(el('h2', null, '¿Cuáles?'));
-    panel.append(el('p', 'smart-onboarding-copy', 'Marca todas las que haya en la mesa. Puedes elegir varias.'));
+    panel.append(el('p', 'smart-onboarding-eyebrow', t('ob.step', { n: 1 })));
+    panel.append(el('h2', null, t('ob.pick.title')));
+    panel.append(el('p', 'smart-onboarding-copy', t('ob.pick.copy')));
 
     const chipset = el('div', 'smart-chipset');
     ALLERGENS.forEach((allergen) => {
@@ -762,18 +756,18 @@ function renderOnboarding() {
       });
       chip.setAttribute('aria-pressed', String(draft.allergens.includes(allergen.id)));
       if (draft.allergens.includes(allergen.id)) chip.classList.add('is-selected');
-      chip.append(el('span', 'smart-chip-check', '✓'), el('span', null, allergen.label));
+      chip.append(el('span', 'smart-chip-check', '✓'), el('span', null, allergenLabel(allergen.label)));
       chipset.append(chip);
     });
     body.append(chipset);
 
     panel.append(body);
-    actions.append(button('smart-btn is-quiet', 'Atrás', () => {
+    actions.append(button('smart-btn is-quiet', t('ob.back'), () => {
       onboardingStep = 'allergies';
       renderOnboarding();
     }));
     actions.append(el('span', 'smart-spacer'));
-    actions.append(button('smart-btn', 'Continuar', () => {
+    actions.append(button('smart-btn', t('ob.continue'), () => {
       onboardingStep = 'people';
       renderOnboarding();
     }));
@@ -783,9 +777,9 @@ function renderOnboarding() {
   }
 
   if (onboardingStep === 'people') {
-    panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 2 de 3'));
-    panel.append(el('h2', null, '¿Cuántos sois en la mesa?'));
-    panel.append(el('p', 'smart-onboarding-copy', 'Nos sirve para ajustar las raciones que os recomendamos.'));
+    panel.append(el('p', 'smart-onboarding-eyebrow', t('ob.step', { n: 2 })));
+    panel.append(el('h2', null, t('ob.people.title')));
+    panel.append(el('p', 'smart-onboarding-copy', t('ob.people.copy')));
 
     const row = el('div', 'smart-people');
     const moreWrap = el('div', 'smart-people-more smart-hidden');
@@ -826,10 +820,10 @@ function renderOnboarding() {
       paint();
     });
     more.dataset.people = 'more';
-    more.setAttribute('aria-label', 'Diez o más personas');
+    more.setAttribute('aria-label', t('ob.people.moreLabel'));
     row.append(more);
 
-    moreWrap.append(el('p', null, '¿Cuántos exactamente?'));
+    moreWrap.append(el('p', null, t('ob.people.more')));
     const moreRow = el('div', 'smart-people');
     [10, 11, 12, 14, 16, 18, 20, 25, 30].forEach((value) => {
       const node = button('', value === 30 ? '30+' : String(value), () => {
@@ -846,12 +840,12 @@ function renderOnboarding() {
     paint();
 
     panel.append(body);
-    actions.append(button('smart-btn is-quiet', 'Atrás', () => {
+    actions.append(button('smart-btn is-quiet', t('ob.back'), () => {
       onboardingStep = draft.hasAllergies ? 'allergen-pick' : 'allergies';
       renderOnboarding();
     }));
     actions.append(el('span', 'smart-spacer'));
-    const next = button('smart-btn', 'Continuar', () => {
+    const next = button('smart-btn', t('ob.continue'), () => {
       onboardingStep = 'preferences';
       renderOnboarding();
     });
@@ -862,8 +856,8 @@ function renderOnboarding() {
   }
 
   // preferences: dos decisiones rápidas, nada de listas largas.
-  panel.append(el('p', 'smart-onboarding-eyebrow', 'Paso 3 de 3'));
-  panel.append(el('h2', null, '¿Cómo venís hoy?'));
+  panel.append(el('p', 'smart-onboarding-eyebrow', t('ob.step', { n: 3 })));
+  panel.append(el('h2', null, t('ob.taste.title')));
 
   const appetiteGrid = el('div', 'smart-appetite');
   APPETITES.forEach((option) => {
@@ -878,14 +872,15 @@ function renderOnboarding() {
     const selected = draft.appetite === option.id;
     card.classList.toggle('is-selected', selected);
     card.setAttribute('aria-pressed', String(selected));
+    const words = appetiteLabel(option);
     card.append(el('span', 'smart-appetite-icon', option.icon));
-    card.append(el('strong', null, option.label));
-    card.append(el('small', null, option.hint));
+    card.append(el('strong', null, words.label));
+    card.append(el('small', null, words.hint));
     appetiteGrid.append(card);
   });
   body.append(appetiteGrid);
 
-  body.append(el('p', 'smart-onboarding-sub', '¿Algo que os apetezca especialmente?'));
+  body.append(el('p', 'smart-onboarding-sub', t('ob.taste.sub')));
 
   const taste = el('div', 'smart-taste');
   PREFERENCES.forEach((preference) => {
@@ -900,19 +895,19 @@ function renderOnboarding() {
     card.classList.toggle('is-selected', selected);
     card.setAttribute('aria-pressed', String(selected));
     card.append(el('span', 'smart-taste-icon', preference.icon));
-    card.append(el('strong', null, preference.label));
+    card.append(el('strong', null, preferenceLabel(preference)));
     taste.append(card);
   });
   body.append(taste);
 
   panel.append(body);
-  actions.append(button('smart-btn is-quiet', 'Saltar', () => {
+  actions.append(button('smart-btn is-quiet', t('ob.skip'), () => {
     draft.preferences = [];
     draft.appetite = null;
     finishOnboarding();
   }));
   actions.append(el('span', 'smart-spacer'));
-  actions.append(button('smart-btn', 'Elegir bebidas', finishOnboarding));
+  actions.append(button('smart-btn', t('ob.finish'), finishOnboarding));
   panel.append(actions);
   dom.onboarding.append(panel);
 }
@@ -931,18 +926,18 @@ function renderContext() {
   const facts = el('div', 'smart-context-facts');
 
   const people = el('span', 'smart-fact');
-  people.append(document.createTextNode('👥 '), el('b', null, String(peopleCount())), document.createTextNode(peopleCount() === 1 ? ' persona' : ' personas'));
+  people.textContent = tp('fact.people', peopleCount());
   facts.append(people);
 
   if (table.allergens.length) {
     const labels = table.allergens
-      .map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label)
+      .map((id) => allergenLabel(ALLERGENS.find((allergen) => allergen.id === id)?.label))
       .filter(Boolean);
     const allergyFact = el('span', 'smart-fact is-alert');
     allergyFact.textContent = `⛔ ${labels.join(', ')}`;
     facts.append(allergyFact);
   } else {
-    facts.append(el('span', 'smart-fact', '✓ Sin alergias indicadas'));
+    facts.append(el('span', 'smart-fact', t('fact.noAllergies')));
   }
 
   if (table.preferences.length) {
@@ -952,7 +947,7 @@ function renderContext() {
     facts.append(el('span', 'smart-fact', `🍽️ ${labels.join(' · ')}`));
   }
 
-  dom.context.append(facts, button('smart-btn is-ghost', 'Cambiar preferencias', () => openOnboarding({ fromStart: false })));
+  dom.context.append(facts, button('smart-btn is-ghost', t('reco.tune'), () => openOnboarding({ fromStart: false })));
 }
 
 // ---------------------------------------------------------------------------
@@ -1028,7 +1023,7 @@ function applyRecoCollapsed() {
     toggle.textContent = '';
     toggle.append(collapseIcon(recoCollapsed));
     toggle.setAttribute('aria-expanded', String(!recoCollapsed));
-    toggle.setAttribute('aria-label', recoCollapsed ? 'Desplegar recomendaciones' : 'Plegar recomendaciones');
+    toggle.setAttribute('aria-label', recoCollapsed ? t('reco.expand') : t('reco.collapse'));
   }
   if (recoCollapsed) stopCarousel();
   else startCarousel();
@@ -1053,7 +1048,7 @@ function renderRecommendations() {
   // qué está ahí. Los controles viven dentro de la propia tarjeta blanca.
   const tools = el('div', 'smart-reco-tools');
   tools.append(
-    button('smart-reco-tune', 'Ajustar', () => openOnboarding({ fromStart: false }))
+    button('smart-reco-tune', t('reco.tune'), () => openOnboarding({ fromStart: false }))
   );
   const toggle = button('smart-reco-toggle', null, () => {
     recoCollapsed = !recoCollapsed;
@@ -1151,7 +1146,7 @@ export function renderCombosSection() {
   const usable = popularCombos.filter((combo) => comboEntries(combo).length >= 2);
 
   if (!usable.length) {
-    wrapper.append(el('p', 'smart-combos-empty', 'Todavía no hay combinaciones cargadas.'));
+    wrapper.append(el('p', 'smart-combos-empty', t('combos.empty')));
     return wrapper;
   }
 
@@ -1159,7 +1154,7 @@ export function renderCombosSection() {
     el(
       'p',
       'smart-combos-lead',
-      'No son menús cerrados ni ofertas: son los pedidos que más se repiten. Ábrelos, quita lo que no os apetezca y añadid el resto.'
+      t('combos.lead')
     )
   );
 
@@ -1182,7 +1177,7 @@ export function renderCombosSection() {
     card.append(thumbs);
     card.append(el('strong', null, combo.name));
     card.append(el('small', null, `${combo.tagline} · ${entries.map((entry) => itemTitle(entry.item)).join(' · ')}`));
-    card.append(el('b', null, `${formatPrice(total)} en total`));
+    card.append(el('b', null, t('combos.total', { amount: formatPrice(total) })));
     card.setAttribute('aria-label', `Ver la combinación ${combo.name}`);
     grid.append(card);
   });
@@ -1263,29 +1258,29 @@ export function openProductSheet(item, groupId) {
     if (meta.tags.length) {
       const tags = el('div', 'smart-sheet-tags');
       meta.tags.forEach((tag) => {
-        tags.append(el('span', 'smart-tag', TAG_LABELS[tag] || tag));
+        tags.append(el('span', 'smart-tag', tagLabel(tag, TAG_LABELS[tag])));
       });
       body.append(tags);
     }
 
     // Información del plato --------------------------------------------------
     const infoSection = el('div', 'smart-sheet-section');
-    infoSection.append(el('h3', null, 'Información del plato'));
+    infoSection.append(el('h3', null, t('sheet.info')));
     const infoList = el('ul', 'smart-sheet-ingredients');
-    KIND_LABELS[entry.kind] && infoList.append(el('li', null, KIND_LABELS[entry.kind]));
-    if (entry.groupName) infoList.append(el('li', null, `Categoría: ${entry.groupName}`));
+    infoList.append(el('li', null, t(`kind.${entry.kind}`)));
+    if (entry.groupName) infoList.append(el('li', null, t('info.category', { name: entry.groupName })));
     infoList.append(el('li', null, popularityCopy(meta.popularity)));
-    if (meta.tags.includes('vegetariano')) infoList.append(el('li', null, 'Apto para vegetarianos.'));
+    if (meta.tags.includes('vegetariano')) infoList.append(el('li', null, t('info.vegetarian')));
     if (meta.tags.includes('compartir')) {
-      infoList.append(el('li', null, `Pensado para compartir: cunde bien para ${peopleCount()} en la mesa.`));
+      infoList.append(el('li', null, t('info.share', { n: peopleCount() })));
     }
-    if (!item.isAvailable) infoList.append(el('li', null, 'Agotado ahora mismo.'));
+    if (!item.isAvailable) infoList.append(el('li', null, t('info.soldOut')));
     infoSection.append(infoList);
     body.append(infoSection);
 
     // Alérgenos ------------------------------------------------------------
     const allergenSection = el('div', 'smart-sheet-section');
-    allergenSection.append(el('h3', null, 'Alérgenos e información'));
+    allergenSection.append(el('h3', null, t('sheet.allergens')));
     const info = getAllergenInfo(item);
     const severity = getAllergenSeverity(item);
 
@@ -1309,10 +1304,10 @@ export function openProductSheet(item, groupId) {
       if (contains.length) anyListed = true;
       if (traces.length) anyListed = true;
 
-      if (contains.length) block.append(allergenLine('Contiene', contains, 'is-contains'));
-      if (traces.length) block.append(allergenLine('Puede contener trazas de', traces, 'is-traces'));
+      if (contains.length) block.append(allergenLine(t('sheet.contains'), contains, 'is-contains'));
+      if (traces.length) block.append(allergenLine(t('sheet.traces'), traces, 'is-traces'));
       if (!contains.length && !traces.length && entries.length > 1) {
-        block.append(el('p', 'smart-allergen-note', 'Sin alérgenos de declaración obligatoria.'));
+        block.append(el('p', 'smart-allergen-note', t('sheet.noAllergens')));
       }
       allergenSection.append(block);
     });
@@ -1323,8 +1318,8 @@ export function openProductSheet(item, groupId) {
           'p',
           'smart-allergen-note',
           info
-            ? 'Sin alérgenos de declaración obligatoria.'
-            : 'No tenemos la ficha cargada para este producto. Consulta al personal.'
+            ? t('sheet.noAllergens')
+            : t('sheet.unknownAllergens')
         )
       );
     }
@@ -1334,12 +1329,12 @@ export function openProductSheet(item, groupId) {
 
     // Variantes y extras ---------------------------------------------------
     const updatePrice = () => {
-      price.textContent = `${formatPrice(unitPrice(item, selection))} · unidad`;
+      price.textContent = t('sheet.unit', { amount: formatPrice(unitPrice(item, selection)) });
     };
 
     if (config.variants.length || config.extras.length) {
       const optionsSection = el('div', 'smart-sheet-section');
-      optionsSection.append(el('h3', null, 'Elige tu versión'));
+      optionsSection.append(el('h3', null, t('sheet.variants')));
 
       config.variants.forEach((variant) => {
         const block = el('div', 'smart-variant');
@@ -1370,7 +1365,7 @@ export function openProductSheet(item, groupId) {
 
       if (config.extras.length) {
         const block = el('div', 'smart-variant');
-        block.append(el('span', null, 'Extras'));
+        block.append(el('span', null, t('sheet.extras')));
         const chipset = el('div', 'smart-chipset');
         config.extras.forEach((extra) => {
           const suffix = extra.delta ? ` · +${formatPrice(extra.delta)}` : '';
@@ -1395,10 +1390,10 @@ export function openProductSheet(item, groupId) {
 
     // Observaciones --------------------------------------------------------
     const noteSection = el('div', 'smart-sheet-section');
-    noteSection.append(el('h3', null, 'Observaciones (opcional)'));
+    noteSection.append(el('h3', null, t('sheet.notes')));
     const note = document.createElement('textarea');
     note.className = 'smart-note-field';
-    note.placeholder = 'Sin cebolla, poco hecho, alergia leve…';
+    note.placeholder = t('sheet.notesPlaceholder');
     note.addEventListener('input', () => {
       selection.note = note.value.trim();
     });
@@ -1425,13 +1420,13 @@ export function openProductSheet(item, groupId) {
     plus.setAttribute('aria-label', 'Añadir una unidad');
     qty.append(minus, output, plus);
 
-    const addButton = button('smart-btn', 'Añadir al carrito', () => {
+    const addButton = button('smart-btn', t('sheet.add'), () => {
       addToCart(item, selection, quantity);
       showAddedView(panel, entry, quantity);
     });
     if (!item.isAvailable) {
       addButton.disabled = true;
-      addButton.textContent = 'Agotado ahora mismo';
+      addButton.textContent = t('sheet.soldOut');
     }
 
     footer.append(qty, addButton);
@@ -1459,7 +1454,7 @@ function showAddedView(panel, entry, quantity) {
 
   if (suggestions.length) {
     const section = el('div', 'smart-sheet-section');
-    section.append(el('h3', null, pairingHeadings[entry.kind] || 'Se suele pedir con'));
+    section.append(el('h3', null, t(`pair.${entry.kind}`)));
 
     const list = el('div', 'smart-pairing-list');
     suggestions.forEach((candidate) => {
@@ -1470,8 +1465,8 @@ function showAddedView(panel, entry, quantity) {
         row.setAttribute('aria-pressed', String(chosen.has(candidate)));
         addChosen.disabled = chosen.size === 0;
         addChosen.textContent = chosen.size
-          ? `Añadir ${chosen.size} ${chosen.size === 1 ? 'sugerencia' : 'sugerencias'}`
-          : 'Añadir seleccionados';
+          ? tp('sheet.addSuggestions', chosen.size)
+          : t('sheet.addSelected');
       });
       row.setAttribute('aria-pressed', 'false');
 
@@ -1493,7 +1488,7 @@ function showAddedView(panel, entry, quantity) {
     });
     section.append(list);
 
-    const addChosen = button('smart-btn is-block', 'Añadir seleccionados', () => {
+    const addChosen = button('smart-btn is-block', t('sheet.addSelected'), () => {
       chosen.forEach((candidate) => {
         const config = getProductOptions(candidate.legacyId, candidate.groupId);
         const selection = { groupId: candidate.groupId, options: {}, extras: [], note: '' };
@@ -1512,9 +1507,9 @@ function showAddedView(panel, entry, quantity) {
   }
 
   const footer = el('div', 'smart-sheet-footer');
-  footer.append(button('smart-btn is-ghost', 'Seguir pidiendo', closeSheet));
+  footer.append(button('smart-btn is-ghost', t('sheet.keepOrdering'), closeSheet));
   footer.append(
-    button('smart-btn', `Ver el pedido · ${formatPrice(cartTotal())}`, () => {
+    button('smart-btn', t('sheet.viewOrder', { amount: formatPrice(cartTotal()) }), () => {
       closeSheet();
       openCart();
     })
@@ -1530,12 +1525,12 @@ function openComboSheet(combo) {
   openSheet((panel) => {
     const body = el('div', 'smart-sheet-body');
     body.style.paddingTop = '24px';
-    body.append(el('p', 'smart-sheet-eyebrow', 'Combinación popular'));
+    body.append(el('p', 'smart-sheet-eyebrow', t('combos.eyebrow')));
     body.append(el('h2', null, combo.name));
     body.append(el('p', 'smart-sheet-desc', `${combo.tagline}. No es un menú cerrado: quita lo que no os apetezca.`));
 
     const section = el('div', 'smart-sheet-section');
-    section.append(el('h3', null, 'Qué incluye'));
+    section.append(el('h3', null, t('combos.includes')));
     const list = el('div', 'smart-pairing-list');
     const totalRow = el('div', 'smart-combo-total');
     const totalValue = el('b');
@@ -1574,13 +1569,13 @@ function openComboSheet(combo) {
     });
 
     section.append(list);
-    totalRow.append(el('span', null, 'Total de lo seleccionado'), totalValue);
+    totalRow.append(el('span', null, t('combos.selectedTotal')), totalValue);
     section.append(totalRow);
     body.append(section);
 
     const footer = el('div', 'smart-sheet-footer');
-    footer.append(button('smart-btn is-ghost', 'Volver a la carta', closeSheet));
-    const addButton = button('smart-btn', 'Añadir al carrito', () => {
+    footer.append(button('smart-btn is-ghost', t('cart.back'), closeSheet));
+    const addButton = button('smart-btn', t('sheet.add'), () => {
       chosen.forEach((entry) => {
         const config = getProductOptions(entry.legacyId, entry.groupId);
         const selection = { groupId: entry.groupId, options: {}, extras: [], note: '' };
@@ -1609,7 +1604,7 @@ function renderCartBadge({ bump = false } = {}) {
   dom.cartFab.classList.toggle('is-empty', count === 0);
   dom.cartFab.setAttribute(
     'aria-label',
-    count === 0 ? 'Ver el pedido, vacío' : `Ver el pedido, ${count} ${count === 1 ? 'producto' : 'productos'}`
+    count === 0 ? t('cart.openEmpty') : t('cart.open', { n: tp('cart.products', count) })
   );
 
   // Al añadir algo el número entra en grande y en blanco y se encoge hasta
@@ -1643,16 +1638,16 @@ function renderCart() {
 
   if (!cart.length) {
     const empty = el('div', 'smart-cart-empty');
-    empty.append(el('strong', null, 'Todavía no habéis añadido nada'));
-    empty.append(el('p', null, 'Abre cualquier producto de la carta y pulsa “Añadir al carrito”.'));
-    empty.append(button('smart-btn', 'Volver a la carta', closeCart));
+    empty.append(el('strong', null, t('cart.emptyTitle')));
+    empty.append(el('p', null, t('cart.emptyCopy')));
+    empty.append(button('smart-btn', t('cart.back'), closeCart));
     items.append(empty);
-    dom.cart.querySelector('.smart-cart-head p').textContent = 'Pedido vacío';
+    dom.cart.querySelector('.smart-cart-head p').textContent = t('cart.empty');
     return;
   }
 
   dom.cart.querySelector('.smart-cart-head p').textContent =
-    `${cartCount()} ${cartCount() === 1 ? 'producto' : 'productos'} · mesa de ${peopleCount()}`;
+    t('cart.summary', { n: tp('cart.products', cartCount()), people: peopleCount() });
 
   cart.forEach((line) => {
     const entry = catalog.byId.get(line.productId);
@@ -1680,8 +1675,8 @@ function renderCart() {
       const warning = el('span', `smart-item-flag is-${severity}`);
       warning.textContent =
         severity === 'alert'
-          ? `⛔ Contiene ${matched.contains.join(', ')}`
-          : `⚠️ Posibles trazas${matched.traces.length ? ` de ${matched.traces.join(', ')}` : ''}`;
+          ? `⛔ ${t('al.contains')} ${matched.contains.map(allergenLabel).join(', ')}`
+          : `${t('al.tracesShort')}${matched.traces.length ? `: ${matched.traces.map(allergenLabel).join(', ')}` : ''}`;
       bodyBlock.append(warning);
     }
 
@@ -1697,15 +1692,15 @@ function renderCart() {
     plus.setAttribute('aria-label', `Añadir una unidad de ${itemTitle(item)}`);
     qty.append(minus, output, plus);
 
-    const editNote = button('smart-icon-btn', line.note ? '✏️ Editar nota' : '✏️ Añadir nota', () => {
-      const next = window.prompt(`Observaciones para ${itemTitle(item)}`, line.note || '');
+    const editNote = button('smart-icon-btn', line.note ? t('cart.editNote') : t('cart.addNote'), () => {
+      const next = window.prompt(t('cart.notePrompt', { name: itemTitle(item) }), line.note || '');
       if (next === null) return;
       line.note = next.trim();
       persistCart();
       renderCart();
     });
 
-    const remove = button('smart-icon-btn is-danger', '🗑 Quitar', () => removeLine(line.key));
+    const remove = button('smart-icon-btn is-danger', t('cart.remove'), () => removeLine(line.key));
 
     actions.append(qty, editNote, remove);
     bodyBlock.append(actions);
@@ -1714,20 +1709,20 @@ function renderCart() {
   });
 
   const totalRow = el('div', 'smart-total-row');
-  totalRow.append(el('span', null, 'Total'), el('b', null, formatPrice(cartTotal())));
+  totalRow.append(el('span', null, t('cart.total')), el('b', null, formatPrice(cartTotal())));
   foot.append(totalRow);
 
   const actions = el('div', 'smart-cart-actions');
   const row = el('div', 'smart-cart-actions-row');
-  row.append(button('smart-btn is-ghost', 'Volver a la carta', closeCart));
+  row.append(button('smart-btn is-ghost', t('cart.back'), closeCart));
   row.append(
-    button('smart-btn is-danger', 'Vaciar carrito', () => {
-      if (window.confirm('¿Vaciar el carrito?')) clearCart();
+    button('smart-btn is-danger', t('cart.clear'), () => {
+      if (window.confirm(t('cart.clearConfirm'))) clearCart();
     })
   );
   actions.append(row);
   actions.append(
-    button('smart-btn is-block', 'Revisar el pedido', () => {
+    button('smart-btn is-block', t('cart.review'), () => {
       closeCart();
       openReview();
     })
@@ -1758,22 +1753,22 @@ function renderReview() {
   panel.setAttribute('role', 'dialog');
   panel.setAttribute('aria-modal', 'true');
 
-  panel.append(el('p', 'smart-onboarding-eyebrow', 'Revisión del pedido'));
-  panel.append(el('h2', null, 'Repasad antes de confirmar'));
+  panel.append(el('p', 'smart-onboarding-eyebrow', t('rev.eyebrow')));
+  panel.append(el('h2', null, t('rev.title')));
   panel.append(
-    el('p', 'smart-review-lead', 'Esto es una demostración: no se envía nada a cocina ni se cobra ningún importe.')
+    el('p', 'smart-review-lead', t('rev.lead'))
   );
 
   // Datos de la mesa -------------------------------------------------------
   const tableBlock = el('div', 'smart-review-block');
-  tableBlock.append(el('h3', null, 'Vuestra mesa'));
+  tableBlock.append(el('h3', null, t('rev.table')));
   const facts = el('div', 'smart-context-facts');
-  facts.append(el('span', 'smart-fact', `👥 ${peopleCount()} ${peopleCount() === 1 ? 'persona' : 'personas'}`));
+  facts.append(el('span', 'smart-fact', tp('fact.people', peopleCount())));
   if (table.allergens.length) {
-    const labels = table.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label).filter(Boolean);
+    const labels = table.allergens.map((id) => allergenLabel(ALLERGENS.find((allergen) => allergen.id === id)?.label)).filter(Boolean);
     facts.append(el('span', 'smart-fact is-alert', `⛔ ${labels.join(', ')}`));
   } else {
-    facts.append(el('span', 'smart-fact', '✓ Sin alergias indicadas'));
+    facts.append(el('span', 'smart-fact', t('fact.noAllergies')));
   }
   if (table.preferences.length) {
     const labels = table.preferences
@@ -1791,7 +1786,7 @@ function renderReview() {
 
   if (flagged.length) {
     const warnBlock = el('div', 'smart-review-block');
-    warnBlock.append(el('h3', null, 'Atención con estos productos'));
+    warnBlock.append(el('h3', null, t('rev.warnings')));
     flagged.forEach(({ entry }) => {
       const severity = getAllergenSeverity(entry.item);
       const matched = matchedAllergenLabels(entry.item);
@@ -1802,8 +1797,8 @@ function renderReview() {
           'span',
           null,
           severity === 'alert'
-            ? `Contiene ${matched.contains.join(', ')}. Avisad al personal al confirmar.`
-            : `Posibles trazas${matched.traces.length ? ` de ${matched.traces.join(', ')}` : ''}. Consultad al personal.`
+            ? t('rev.containsWarn', { list: matched.contains.map(allergenLabel).join(', ') })
+            : t('rev.tracesWarn', { list: matched.traces.length ? `: ${matched.traces.map(allergenLabel).join(', ')}` : '' })
         )
       );
       warnBlock.append(banner);
@@ -1813,7 +1808,7 @@ function renderReview() {
 
   // Productos --------------------------------------------------------------
   const itemsBlock = el('div', 'smart-review-block');
-  itemsBlock.append(el('h3', null, 'Resumen del pedido'));
+  itemsBlock.append(el('h3', null, t('rev.items')));
   cart.forEach((line) => {
     const entry = catalog.byId.get(line.productId);
     if (!entry) return;
@@ -1833,24 +1828,24 @@ function renderReview() {
   panel.append(itemsBlock);
 
   const total = el('div', 'smart-review-total');
-  total.append(el('span', null, 'Total'), el('b', null, formatPrice(cartTotal())));
+  total.append(el('span', null, t('cart.total')), el('b', null, formatPrice(cartTotal())));
   panel.append(total);
 
   const actions = el('div', 'smart-review-actions');
   actions.append(
-    button('smart-btn is-block', 'Confirmar pedido de prueba', () => {
+    button('smart-btn is-block', t('rev.confirm'), () => {
       renderSuccess();
     })
   );
   actions.append(
-    button('smart-btn is-ghost is-block', 'Seguir editando el pedido', () => {
+    button('smart-btn is-ghost is-block', t('rev.keepEditing'), () => {
       closeReview();
       openCart();
     })
   );
   panel.append(actions);
   panel.append(
-    el('p', 'smart-demo-note', 'Prototipo de demostración · No se genera ninguna comanda real ni ningún cobro.')
+    el('p', 'smart-demo-note', t('rev.demoNote'))
   );
 
   dom.review.append(panel);
@@ -1867,32 +1862,32 @@ function renderSuccess() {
 
   const success = el('div', 'smart-success');
   success.append(el('div', 'smart-success-mark', '✓'));
-  success.append(el('h2', null, 'Demostración completada'));
+  success.append(el('h2', null, t('rev.doneTitle')));
   success.append(
     el(
       'p',
       null,
-      `Habéis simulado un pedido de ${items} ${items === 1 ? 'producto' : 'productos'} por ${formatPrice(total)}. En el producto final, aquí saldría la comanda hacia cocina y barra.`
+      t('rev.doneCopy', { n: tp('cart.products', items), amount: formatPrice(total) })
     )
   );
   panel.append(success);
 
   const actions = el('div', 'smart-review-actions');
   actions.append(
-    button('smart-btn is-block', 'Empezar otra demostración', () => {
+    button('smart-btn is-block', t('rev.restart'), () => {
       clearCart();
       closeReview();
       openOnboarding();
     })
   );
   actions.append(
-    button('smart-btn is-ghost is-block', 'Volver a la carta', () => {
+    button('smart-btn is-ghost is-block', t('cart.back'), () => {
       clearCart();
       closeReview();
     })
   );
   panel.append(actions);
-  panel.append(el('p', 'smart-demo-note', 'Ningún pedido real ha sido enviado.'));
+  panel.append(el('p', 'smart-demo-note', t('rev.noneSent')));
   dom.review.append(panel);
 }
 
@@ -1923,11 +1918,11 @@ function buildShell() {
   const overlayPanel = el('div', 'smart-cart-panel');
   overlayPanel.setAttribute('role', 'dialog');
   overlayPanel.setAttribute('aria-modal', 'true');
-  overlayPanel.setAttribute('aria-label', 'Vuestro pedido');
+  overlayPanel.setAttribute('aria-label', t('cart.title'));
 
   const head = el('div', 'smart-cart-head');
   const headText = el('div');
-  headText.append(el('h2', null, 'Vuestro pedido'), el('p', null, ''));
+  headText.append(el('h2', null, t('cart.title')), el('p', null, ''));
   const close = button('smart-sheet-close smart-cart-close', '×', closeCart);
   close.style.position = 'static';
   close.setAttribute('aria-label', 'Cerrar el pedido');
@@ -1955,6 +1950,32 @@ function buildShell() {
     else if (dom.review.classList.contains('is-open')) closeReview();
     else if (dom.cart.classList.contains('is-open')) closeCart();
   });
+}
+
+/** Acceso al catálogo desde main.js (para el cartel de producto). */
+export function getCatalogEntry(productId) {
+  return catalog.byId.get(productId) || null;
+}
+
+/**
+ * Cambio de idioma en caliente: se repinta todo lo que la capa nueva tenga
+ * abierto, incluido el recorrido guiado, sin recargar ni perder el pedido.
+ */
+export function applySmartLocale(language) {
+  setSmartLocale(language);
+  // Se llama también antes de montar la interfaz, para fijar el idioma de
+  // partida: en ese momento no hay nada que repintar todavía.
+  if (!dom.cart) return;
+
+  refreshSmartPanels();
+  renderCart();
+  renderCartBadge();
+  if (dom.onboarding?.classList.contains('is-open')) renderOnboarding();
+  if (dom.review?.classList.contains('is-open')) renderReview();
+  // La ficha abierta se cierra: su contenido depende del producto y de las
+  // opciones a medio elegir, y repintarla perdería la selección.
+  if (dom.sheet?.classList.contains('is-open')) closeSheet();
+  refreshTour();
 }
 
 /** Repinta solo las piezas de la carta inteligente, no la carta en sí. */
@@ -2015,8 +2036,7 @@ function buildTourContext() {
     table: () => table,
     peopleCount,
     preferenceTags: selectedTags,
-    preferenceLabel: (tag) =>
-      (TAG_LABELS[tag] || tag).toLowerCase(),
+    preferenceLabel: (tag) => tagLabel(tag, TAG_LABELS[tag]).toLowerCase(),
     productMeta: getProductMeta,
     basePrice,
     title: itemTitle,
@@ -2027,7 +2047,7 @@ function buildTourContext() {
     allergenSeverity: getAllergenSeverity,
     matchedAllergens: matchedAllergenLabels,
     allergenLabels: () =>
-      table.allergens.map((id) => ALLERGENS.find((allergen) => allergen.id === id)?.label).filter(Boolean),
+      table.allergens.map((id) => allergenLabel(ALLERGENS.find((allergen) => allergen.id === id)?.label)).filter(Boolean),
     openAllergens: (item) => host.openAllergenModal(item, document.activeElement),
     openSheet: openProductSheet,
     quantityOf: quantityOfProduct,

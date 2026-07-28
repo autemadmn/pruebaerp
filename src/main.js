@@ -9,8 +9,14 @@ import {
   openProductSheet,
   refreshSmartPanels,
   registerCatalog,
-  renderCombosSection
+  renderCombosSection,
+  getCatalogEntry,
+  applySmartLocale
 } from './smart-menu.js';
+import { hasPoster, openPoster } from './guided-tour.js';
+// `t` ya existe en este módulo para los campos multiidioma del producto, así
+// que los textos de interfaz entran como `ui`.
+import { t as ui } from './smart-i18n.js';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -503,6 +509,8 @@ async function subscribeToMenu(restaurantId) {
 async function initializeMenu() {
   setupLanguageSwitcher();
   updateStaticText();
+  // El idioma guardado también manda en la capa nueva desde el primer pintado.
+  applySmartLocale(currentLanguage);
   if (initialMenuSnapshot?.categories?.length) {
     applyMenuData(initialMenuSnapshot);
     // La carta inteligente se monta con el catálogo ya cargado y antes del
@@ -1256,15 +1264,16 @@ function createAllergenButton(item, itemText) {
   const icon = document.createElement("img");
   const label = document.createElement("span");
 
-  button.className = "allergen-trigger";
+  // Mismo distintivo de cristal que en el recorrido guiado.
+  button.className = "tour-badge-glass is-allergen allergen-trigger";
   button.type = "button";
-  button.setAttribute("aria-label", `Ver alérgenos de ${itemText.title}`);
+  button.setAttribute("aria-label", `${ui('al.view')}: ${itemText.title}`);
   icon.src = "assets/ui/icons/precaucion1.webp";
   icon.alt = "";
   icon.loading = "lazy";
   icon.decoding = "async";
   icon.setAttribute("aria-hidden", "true");
-  label.textContent = "Ver alérgenos";
+  label.textContent = ui('al.view');
   button.append(icon, label);
   button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -1284,7 +1293,7 @@ function createDishThumb(item, itemText) {
   const frame = document.createElement("span");
   const image = document.createElement("img");
 
-  frame.className = "dish-thumb";
+  frame.className = "tour-thumb";
   image.src = item.image;
   image.alt = "";
   image.loading = "lazy";
@@ -1302,23 +1311,39 @@ function createDishThumb(item, itemText) {
   return frame;
 }
 
+// La carta libre usa exactamente la misma tarjeta que el recorrido guiado:
+// foto a toda altura por la izquierda, distintivos flotando encima y los
+// mismos botones. Reutiliza sus clases para que no puedan divergir.
 function createDishButton(item, sectionName, groupId) {
   const card = document.createElement("article");
   const isInteractive = item.hasDetail !== false;
   const button = document.createElement(isInteractive ? "button" : "div");
   const itemText = getItemText(item);
   const itemPrice = getItemPrice(item, itemText);
+  const entry = getCatalogEntry(item.id);
 
-  card.className = "dish";
+  card.className = "dish tour-item";
   card.dataset.dish = item.id;
   card.classList.toggle("is-static", !isInteractive);
   card.classList.toggle("is-sold-out", !item.isAvailable);
 
-  button.className = isInteractive ? "dish-select" : "dish-select is-static";
+  if (isInteractive) {
+    card.append(createDishThumb(item, itemText));
+
+    const badges = document.createElement("div");
+    badges.className = "tour-badges";
+    badges.append(createAllergenButton(item, itemText));
+    card.append(badges);
+  }
+
+  const main = document.createElement("div");
+  main.className = "tour-item-main";
+
+  button.className = isInteractive ? "tour-pick" : "tour-pick is-static";
 
   if (isInteractive) {
     button.type = "button";
-    button.setAttribute("aria-label", `Ver ${itemText.title}, ${sectionName}, ${itemPrice}`);
+    button.setAttribute("aria-label", `${itemText.title}, ${sectionName}, ${itemPrice}`);
   }
 
   const text = document.createElement("span");
@@ -1326,7 +1351,7 @@ function createDishButton(item, sectionName, groupId) {
   const description = document.createElement("small");
   const price = document.createElement("b");
 
-  text.className = "dish-copy";
+  text.className = "tour-copy";
   title.textContent = itemText.title;
   title.classList.add(nameSizeClasses[item.nameSize] || nameSizeClasses.normal);
   description.textContent = itemText.description;
@@ -1341,7 +1366,6 @@ function createDishButton(item, sectionName, groupId) {
     text.append(note);
   }
 
-  if (isInteractive) button.append(createDishThumb(item, itemText));
   button.append(text, price);
 
   if (!item.isAvailable) {
@@ -1356,28 +1380,53 @@ function createDishButton(item, sectionName, groupId) {
     button.addEventListener("click", () => openProductSheet(item, groupId));
   }
 
-  card.append(button);
+  main.append(button);
 
   const foot = document.createElement("div");
-  foot.className = "dish-foot";
-  foot.append(createAllergenButton(item, itemText));
+  foot.className = "tour-item-foot";
 
   if (isInteractive) {
-    // Señuelo: no añade nada por sí solo, abre la ficha para que el cliente
-    // descubra variantes, extras y observaciones antes de confirmar.
+    // Comida: el cartel visual. Bebidas: la ficha de siempre.
+    if (entry && hasPoster(entry)) {
+      const poster = document.createElement("button");
+      poster.className = "tour-chip is-poster";
+      poster.type = "button";
+      poster.textContent = ui('tour.click');
+      poster.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openPoster(entry);
+      });
+      foot.append(poster);
+    } else {
+      const sheet = document.createElement("button");
+      sheet.className = "tour-chip";
+      sheet.type = "button";
+      sheet.textContent = ui('tour.viewSheet');
+      sheet.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openProductSheet(item, groupId);
+      });
+      foot.append(sheet);
+    }
+
+    foot.append(Object.assign(document.createElement("span"), { className: "tour-spacer" }));
+
     const add = document.createElement("button");
-    add.className = "dish-add";
+    add.className = "tour-chip is-add";
     add.type = "button";
-    add.textContent = "+ carrito";
-    add.setAttribute("aria-label", `Abrir ${itemText.title} para añadirlo al pedido`);
+    add.textContent = ui('tour.add');
+    add.setAttribute("aria-label", `${itemText.title}: ${ui('tour.add')}`);
     add.addEventListener("click", (event) => {
       event.stopPropagation();
       openProductSheet(item, groupId);
     });
     foot.append(add);
+  } else {
+    foot.append(createAllergenButton(item, itemText));
   }
 
-  card.append(foot);
+  main.append(foot);
+  card.append(main);
 
   return card;
 }
@@ -1823,6 +1872,9 @@ function setLanguage(language) {
   renderTabs();
   renderActiveSection();
   updateActiveTabs();
+  // La capa nueva (recomendaciones, carrito, ficha, recorrido) se repinta en el
+  // acto para que no quede nada en el idioma anterior.
+  applySmartLocale(language);
 }
 
 function setupLanguageSwitcher() {
